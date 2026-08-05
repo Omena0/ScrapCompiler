@@ -9,4 +9,5 @@ gates = compiler.compile()
 
 IR = ScrapCompiler.gates_to_ir(gates)
 
-print(IR)
+with open('out.ir', 'w') as f:
+    f.write(IR)

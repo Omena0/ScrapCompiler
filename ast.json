@@ -7,7 +7,8 @@
           {
             "name": "a",
             "type": "dynamic",
-            "len": null
+            "len": null,
+            "optional": false
           },
           {
             "name": "b",
@@ -15,12 +16,14 @@
             "len": {
               "type": "ident",
               "name": "a"
-            }
+            },
+            "optional": false
           },
           {
             "name": "carry_in",
             "type": "bit",
-            "len": null
+            "len": null,
+            "optional": true
           }
         ],
         "outputs": [
@@ -30,12 +33,14 @@
             "len": {
               "type": "ident",
               "name": "a"
-            }
+            },
+            "optional": false
           },
           {
             "name": "carry_out",
             "type": "bit",
-            "len": null
+            "len": null,
+            "optional": false
           }
         ]
       },

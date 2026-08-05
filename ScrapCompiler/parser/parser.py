@@ -1,29 +1,57 @@
+from __future__ import annotations
+
+import sys
+from typing import Any, TypeAlias
+
 from .stream import TextStream
 
-keywords = {"module", "new"}
-fields = {
+AstNode: TypeAlias = dict[str, Any]
+ModuleNodes: TypeAlias = dict[str, AstNode]
+
+keywords: set[str] = {"module", "new"}
+fields: dict[str, list[str]] = {
     'module': ['inputs', 'outputs', 'gates']
 }
-complex_fields = ['gates']
+complex_fields: list[str] = ['gates']
 
-builtins = ['Xor', 'And', 'Or', 'Nor', 'XNor', 'Nand']
+builtins: list[str] = ['Xor', 'And', 'Or', 'Nor', 'XNor', 'Nand']
 
-def consume_call(stream:TextStream):
-    """Consumes (..)"""
+
+def consume_call(stream: TextStream) -> list[AstNode]:
+    """Parse a parenthesized, comma-separated expression list."""
     stream.expect('(')
+    stream.consume_whitespace()
 
     args = []
     while not stream.consume_text(')'):
-        args.append(parse_expr(stream))
+        args.append(_parse_call_argument(stream))
         if not stream.match(')'):
             stream.expect(',')
+            stream.consume_whitespace()
 
     stream.consume_whitespace()
 
     return args
 
-def consume_classdef(stream:TextStream) -> list | None:
-    """Consumes `(..) {`, returning `..`"""
+def _parse_call_argument(stream: TextStream) -> AstNode:
+    """Parse a positional expression or a named ``name = value`` argument."""
+    start = stream.pos
+    name = stream.consume_word()
+    if name:
+        _consume_trivia(stream)
+        if stream.consume_text('='):
+            if not stream.match('='):
+                return stream.emit({
+                    'type': 'named_arg',
+                    'name': name,
+                    'value': parse_expr(stream),
+                })
+
+    stream.pos = start
+    return parse_expr(stream)
+
+def consume_classdef(stream: TextStream) -> list[AstNode]:
+    """Parse module inheritance arguments followed by an opening brace."""
 
     inherits = consume_call(stream)
 
@@ -33,8 +61,9 @@ def consume_classdef(stream:TextStream) -> list | None:
 
     return inherits
 
-def consume_def(stream:TextStream):
-    type = stream.consume_word()
+def consume_def(stream: TextStream) -> AstNode:
+    """Parse a named input or output definition."""
+    definition_type = stream.consume_word()
     type_len = None
     if stream.consume_text('['):
         type_len = parse_expr(stream)
@@ -42,130 +71,233 @@ def consume_def(stream:TextStream):
 
     stream.consume_whitespace()
 
+    buffered = stream.consume_text('buffered')
+    stream.consume_whitespace()
+
+    optional = stream.consume_text('?')
     name = stream.consume_word()
 
-    return {"name": name, "type": type, "len": type_len}
+    return stream.emit({
+        "name": name,
+        "type": definition_type,
+        "len": type_len,
+        "optional": optional,
+        "buffered": buffered,
+    })
 
-def consume_defs(stream:TextStream):
+def consume_defs(stream: TextStream) -> list[AstNode]:
+    """Parse definitions until the enclosing field closes."""
     defs = []
-    while not stream.consume_text('}'):
+    while True:
+        stream.consume_whitespace()
+        if stream.match('}'):
+            break
+
         if stream.eof:
             stream.error('SyntaxError', "Unclosed '}'")
 
         defs.append(consume_def(stream))
         stream.consume_whitespace()
 
+    stream.expect('}')
+
     return defs
 
-def consume_comment(stream:TextStream):
+def consume_comment(stream: TextStream) -> None:
+    """Consume one optional line comment and its leading whitespace."""
     stream.consume_whitespace()
     if stream.consume_text('//'):
         stream.consume_until('\n')
 
-# TODO
-def parse_expr(stream: TextStream) -> dict:
-    stream.consume_whitespace()
+_binary_precedence = {
+    '||': 1,
+    '&&': 2,
+    '|': 3,
+    '^': 4,
+    '&': 5,
+    '==': 6,
+    '!=': 6,
+    '<': 7,
+    '<=': 7,
+    '>': 7,
+    '>=': 7,
+    '<<': 8,
+    '>>': 8,
+    '+': 9,
+    '-': 9,
+    '*': 10,
+    '/': 10,
+    '%': 10,
+}
+_binary_operators = tuple(sorted(_binary_precedence, key=len, reverse=True))
 
-    # Integer literal
+def _consume_trivia(stream: TextStream) -> None:
+    """Consume whitespace and consecutive line comments."""
+    while True:
+        stream.consume_whitespace()
+        if not stream.consume_text('//'):
+            return
+        stream.consume_until('\n')
+
+def _is_generic_call(stream: TextStream) -> bool:
+    """Return whether the remaining text begins a typed function call."""
+    source = stream.remaining
+    if not source.startswith('<'):
+        return False
+
+    position = 1
+    while position < len(source) and source[position].isspace():
+        position += 1
+
+    start = position
+    while position < len(source) and (source[position].isalnum() or source[position] == '_'):
+        position += 1
+
+    if position == start:
+        return False
+
+    while position < len(source) and source[position].isspace():
+        position += 1
+
+    if position == len(source) or source[position] != '>':
+        return False
+
+    position += 1
+    while position < len(source) and source[position].isspace():
+        position += 1
+
+    return position < len(source) and source[position] == '('
+
+def _parse_postfix(stream: TextStream, value: AstNode) -> AstNode:
+    """Extend a primary expression with calls, type arguments, and indexes."""
+    while True:
+        _consume_trivia(stream)
+
+        if stream.consume_text('['):
+            index = parse_expr(stream)
+            stream.expect(']')
+            value = stream.emit({
+                'type': 'index',
+                'value': value,
+                'index': index,
+            })
+            continue
+
+        if stream.consume_text('.'):
+            name = stream.consume_word()
+            if not name:
+                stream.error('SyntaxError', 'Field selection requires a name')
+            value = stream.emit({
+                'type': 'field',
+                'value': value,
+                'name': name,
+            })
+            continue
+
+        if _is_generic_call(stream):
+            if value['type'] != 'ident':
+                stream.error('SyntaxError', 'Generic calls require an identifier')
+
+            stream.expect('<')
+            _consume_trivia(stream)
+            cast_type = stream.consume_word()
+            if not cast_type:
+                stream.error('SyntaxError', 'Expected cast type')
+            _consume_trivia(stream)
+            stream.expect('>')
+            _consume_trivia(stream)
+            value = stream.emit({
+                'type': 'call',
+                'name': value['name'],
+                'cast_type': cast_type,
+                'args': consume_call(stream),
+            })
+            continue
+
+        if stream.match('('):
+            if value['type'] != 'ident':
+                stream.error('SyntaxError', 'Calls require an identifier')
+
+            value = stream.emit({
+                'type': 'call',
+                'name': value['name'],
+                'args': consume_call(stream),
+            })
+            continue
+
+        return value
+
+def _parse_primary(stream: TextStream) -> AstNode:
+    """Parse an expression that does not begin with a unary operator."""
+    _consume_trivia(stream)
+
     if stream.peek().isdigit():
-        value = stream.consume_while(lambda c: c.isdigit())
-        return {
-            "type": "int",
-            "value": int(value)
-        }
+        value = stream.consume_while(lambda char: char.isdigit())
+        return stream.emit({'type': 'int', 'value': int(value)})
 
-    # Boolean literals
-    if stream.match("true"):
-        stream.consume_text("true")
-        return {
-            "type": "bool",
-            "value": True
-        }
-
-    if stream.match("false"):
-        stream.consume_text("false")
-        return {
-            "type": "bool",
-            "value": False
-        }
+    if stream.consume_text('('):
+        value = parse_expr(stream)
+        stream.expect(')')
+        return value
 
     word = stream.consume_word()
+    if not word:
+        stream.error('SyntaxError', 'Expected expression')
 
-    stream.consume_whitespace()
+    if word == 'true':
+        return stream.emit({'type': 'bool', 'value': True})
 
-    consume_comment(stream)
-    stream.consume_whitespace()
+    if word == 'false':
+        return stream.emit({'type': 'bool', 'value': False})
 
-    if stream.peek() in "])}," or stream.match("->"):
-        return {
-            "type": "ident",
-            "name": word
-        }
-
-    if stream.consume_text('['):
-        idx = parse_expr(stream)
-        stream.expect(']')
-        return {
-            "type": "index",
-            "value": parse_expr(TextStream(word)),
-            "index": idx
-        }
+    if word == 'new':
+        return stream.emit({'type': 'new', 'value': _parse_unary(stream)})
 
     if word in keywords:
         return parse_keyword(word, stream)
 
-    if stream.match('('):
-        args = consume_call(stream)
+    return stream.emit({'type': 'ident', 'name': word})
 
-        if stream.consume_text('['):
-            idx = parse_expr(stream)
-            stream.expect(']')
-            return {
-                "type": "index",
-                "value": {
-                    "type": "call",
-                    "name": word,
-                    "args": args
-                },
-                "index": idx
-            }
+def _parse_unary(stream: TextStream) -> AstNode:
+    """Parse a prefix unary expression or postfix primary expression."""
+    _consume_trivia(stream)
+    for operator in ('+', '-', '!', '~'):
+        if stream.consume_text(operator):
+            return stream.emit({
+                'type': 'unary',
+                'op': operator,
+                'value': _parse_unary(stream),
+            })
 
-        return {
-            "type": "call",
-            "name": word,
-            "args": args
-        }
+    return _parse_postfix(stream, _parse_primary(stream))
 
-    if stream.consume_text('<'):
-        cast = stream.consume_word()
-        stream.expect('>')
+def parse_expr(stream: TextStream, min_precedence: int = 1) -> AstNode:
+    """Parse a precedence-aware expression from ``stream``."""
+    value = _parse_unary(stream)
 
-        args = consume_call(stream)
+    while True:
+        _consume_trivia(stream)
+        if stream.match('->'):
+            return value
 
-        if stream.consume_text('['):
-            idx = parse_expr(stream)
-            stream.expect(']')
-            return {
-                "type": "index",
-                "value": {
-                    "type": "call",
-                    "name": word,
-                    "cast_type": cast,
-                    "args": args
-                },
-                "index": idx
-            }
+        operator = next(
+            (candidate for candidate in _binary_operators if stream.match(candidate)),
+            None,
+        )
+        if operator is None or _binary_precedence[operator] < min_precedence:
+            return value
 
-        return {
-            "type": "call",
-            "name": word,
-            "cast_type": cast,
-            "args": args
-        }
+        stream.consume_text(operator)
+        precedence = _binary_precedence[operator]
+        value = stream.emit({
+            'type': 'binary',
+            'op': operator,
+            'left': value,
+            'right': parse_expr(stream, precedence + 1),
+        })
 
-    stream.error("SyntaxError", "Invalid expression")
-
-def parse_statement(stream:TextStream) -> list:
+def parse_statement(stream: TextStream) -> list[AstNode]:
+    """Parse one statement from a module gate block."""
     # We have something like
     # dynamic(a) as n {
     # x: new Xor()
@@ -197,13 +329,17 @@ def parse_statement(stream:TextStream) -> list:
 
             stream.consume_whitespace()
 
-            return [{
+            gates = parse_complex_field(stream)
+            stream.expect('}')
+            stream.consume_whitespace()
+
+            return [stream.emit({
                 "type": "as",
                 "name": word,
                 "args": args,
                 "var": name,
-                "gates": parse_complex_field(stream)
-            }]
+                "gates": gates
+            })]
 
         else:
             stream.error('SyntaxError', 'Unexpected call')
@@ -230,17 +366,18 @@ def parse_statement(stream:TextStream) -> list:
         to = stream.consume_word()
         stream.consume_whitespace()
 
-        return [{
+        return [stream.emit({
             "type": "arrow",
             "from": args,
             "to": to
-        }]
+        })]
 
 
     else:
-        stream.error('SyntaxError', 'Invalid syntax')
+        stream.error('SyntaxError', 'Invalid syntax while parsing statement. Expected ident, call, or wire statement.')
 
-def parse_complex_field(stream:TextStream):
+def parse_complex_field(stream: TextStream) -> list[AstNode]:
+    """Parse statements until a complex field's closing brace."""
     statements = []
     while not stream.match('}'):
         statements.extend(parse_statement(stream))
@@ -248,7 +385,8 @@ def parse_complex_field(stream:TextStream):
 
     return statements
 
-def parse_field(stream:TextStream):
+def parse_field(stream: TextStream) -> tuple[str, list[AstNode]]:
+    """Parse a named module field and its contents."""
     # field {
 
     field = stream.consume_word()
@@ -275,7 +413,8 @@ def parse_field(stream:TextStream):
 
     return field, defs
 
-def parse_keyword(keyword:str, stream: TextStream) -> dict:
+def parse_keyword(keyword: str, stream: TextStream) -> AstNode:
+    """Parse a keyword-led module declaration or allocation expression."""
     stream.consume_whitespace()
 
     if keyword == 'module':
@@ -289,51 +428,52 @@ def parse_keyword(keyword:str, stream: TextStream) -> dict:
         #            ^^^^^^
         inherit = consume_classdef(stream)
 
-        fields = {}
-        while not stream.consume_text('}'):
+        module_fields: AstNode = {}
+        while not stream.match('}'):
             field, defs = parse_field(stream)
             if field not in complex_fields:
-                fields[field] = defs
+                module_fields[field] = defs
 
         stream.consume_whitespace()
-
         stream.expect('}')
 
         return {
-            name: {
+            name: stream.emit({
                 "inherit": inherit,
-                "fields": fields,
+                "fields": stream.emit(module_fields),
                 "gates": defs
-            }
+            })
         }
 
     elif keyword == 'new':
         stream.consume_whitespace()
         value = parse_expr(stream)
-        return {
+        return stream.emit({
             "type": "new",
             "value": value
-        }
+        })
 
     else:
         stream.error('SyntaxError', f"Invalid keyword: '{keyword}'", keyword)
 
-def parse_ident(name:str, stream:TextStream) -> dict:
+def parse_ident(name: str, stream: TextStream) -> AstNode:
+    """Parse a named gate assignment after its identifier."""
     stream.consume_whitespace()
 
     stream.expect(':')
 
     expr = parse_expr(stream)
 
-    gate = {
+    gate = stream.emit({
         "type": "gate",
         "name": name,
         "value": expr
-    }
+    })
 
     return gate
 
-def parse_toplevel(stream: TextStream) -> tuple[dict, list]:
+def parse_toplevel(stream: TextStream) -> tuple[ModuleNodes, list[AstNode]]:
+    """Parse one top-level module declaration or gate assignment."""
     stream.consume_whitespace()
     word = stream.consume_word()
 
@@ -344,15 +484,16 @@ def parse_toplevel(stream: TextStream) -> tuple[dict, list]:
     if stream.match(':'):
         return {}, [parse_ident(word, stream)]
 
-    stream.error('SyntaxError', f'invalid syntax: {word}', word)
+    stream.error('SyntaxError', f'invalid syntax while parsing toplevel: {word}', word)
 
-def parse(source:str):
-    stream = TextStream(source)
+def parse(source: str, debug=True) -> AstNode:
+    """Parse source text into the compiler AST."""
+    stream = TextStream(source, debug)
 
-    ast = {
+    ast = stream.emit({
         "modules": {},
         "gates": []
-    }
+    })
 
     while stream:
         stream.consume_whitespace()
@@ -364,4 +505,3 @@ def parse(source:str):
         ast['gates'].extend(g)
 
     return ast
-

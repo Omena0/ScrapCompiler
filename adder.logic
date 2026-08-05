@@ -3,7 +3,7 @@ module Adder() {
     inputs {
         dynamic a
         dynamic[a] b
-        bit carry_in
+        bit ?carry_in
     }
 
     outputs {
@@ -38,4 +38,4 @@ module Adder() {
     }
 }
 
-out: Adder<u8>(4, 8)[0]
+out: Adder<u8>(4, 8).carry_out
