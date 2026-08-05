@@ -1,0 +1,265 @@
+{
+  "modules": {
+    "Adder": {
+      "inherit": [],
+      "fields": {
+        "inputs": [
+          {
+            "name": "a",
+            "type": "dynamic",
+            "len": null
+          },
+          {
+            "name": "b",
+            "type": "dynamic",
+            "len": {
+              "type": "ident",
+              "name": "a"
+            }
+          },
+          {
+            "name": "carry_in",
+            "type": "bit",
+            "len": null
+          }
+        ],
+        "outputs": [
+          {
+            "name": "sum",
+            "type": "dynamic",
+            "len": {
+              "type": "ident",
+              "name": "a"
+            }
+          },
+          {
+            "name": "carry_out",
+            "type": "bit",
+            "len": null
+          }
+        ]
+      },
+      "gates": [
+        {
+          "type": "as",
+          "name": "dynamic",
+          "args": [
+            {
+              "type": "ident",
+              "name": "a"
+            }
+          ],
+          "var": "n",
+          "gates": [
+            {
+              "type": "gate",
+              "name": "x",
+              "value": {
+                "type": "new",
+                "value": {
+                  "type": "call",
+                  "name": "Xor",
+                  "args": []
+                }
+              }
+            },
+            {
+              "type": "arrow",
+              "from": [
+                {
+                  "type": "index",
+                  "value": {
+                    "type": "ident",
+                    "name": "a"
+                  },
+                  "index": {
+                    "type": "ident",
+                    "name": "n"
+                  }
+                },
+                {
+                  "type": "index",
+                  "value": {
+                    "type": "ident",
+                    "name": "b"
+                  },
+                  "index": {
+                    "type": "ident",
+                    "name": "n"
+                  }
+                }
+              ],
+              "to": "x"
+            },
+            {
+              "type": "gate",
+              "name": "out",
+              "value": {
+                "type": "new",
+                "value": {
+                  "type": "call",
+                  "name": "Xor",
+                  "args": [
+                    {
+                      "type": "index",
+                      "value": {
+                        "type": "ident",
+                        "name": "sum"
+                      },
+                      "index": {
+                        "type": "ident",
+                        "name": "n"
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "type": "arrow",
+              "from": [
+                {
+                  "type": "ident",
+                  "name": "x"
+                },
+                {
+                  "type": "ident",
+                  "name": "carry_in"
+                }
+              ],
+              "to": "out"
+            },
+            {
+              "type": "gate",
+              "name": "y",
+              "value": {
+                "type": "new",
+                "value": {
+                  "type": "call",
+                  "name": "And",
+                  "args": []
+                }
+              }
+            },
+            {
+              "type": "arrow",
+              "from": [
+                {
+                  "type": "index",
+                  "value": {
+                    "type": "ident",
+                    "name": "a"
+                  },
+                  "index": {
+                    "type": "ident",
+                    "name": "n"
+                  }
+                },
+                {
+                  "type": "index",
+                  "value": {
+                    "type": "ident",
+                    "name": "b"
+                  },
+                  "index": {
+                    "type": "ident",
+                    "name": "n"
+                  }
+                }
+              ],
+              "to": "y"
+            },
+            {
+              "type": "gate",
+              "name": "z",
+              "value": {
+                "type": "new",
+                "value": {
+                  "type": "call",
+                  "name": "And",
+                  "args": []
+                }
+              }
+            },
+            {
+              "type": "arrow",
+              "from": [
+                {
+                  "type": "ident",
+                  "name": "x"
+                },
+                {
+                  "type": "ident",
+                  "name": "carry_in"
+                }
+              ],
+              "to": "z"
+            },
+            {
+              "type": "gate",
+              "name": "carry_out",
+              "value": {
+                "type": "new",
+                "value": {
+                  "type": "call",
+                  "name": "Or",
+                  "args": []
+                }
+              }
+            },
+            {
+              "type": "arrow",
+              "from": [
+                {
+                  "type": "ident",
+                  "name": "y"
+                },
+                {
+                  "type": "ident",
+                  "name": "z"
+                }
+              ],
+              "to": "carry_out"
+            },
+            {
+              "type": "gate",
+              "name": "carry_in",
+              "value": {
+                "type": "ident",
+                "name": "carry_out"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "gates": [
+    {
+      "type": "gate",
+      "name": "out",
+      "value": {
+        "type": "index",
+        "value": {
+          "type": "call",
+          "name": "Adder",
+          "cast_type": "u8",
+          "args": [
+            {
+              "type": "int",
+              "value": 4
+            },
+            {
+              "type": "int",
+              "value": 8
+            }
+          ]
+        },
+        "index": {
+          "type": "int",
+          "value": 0
+        }
+      }
+    }
+  ]
+}

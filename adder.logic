@@ -1,0 +1,41 @@
+
+module Adder() {
+    inputs {
+        dynamic a
+        dynamic[a] b
+        bit carry_in
+    }
+
+    outputs {
+        dynamic[a] sum
+        bit carry_out
+    }
+
+    gates {
+        dynamic(a) as n {
+            // XOR A B
+            x: new Xor()
+            a[n], b[n] -> x
+
+            // XOR X CARRY_IN
+            out: new Xor(sum[n])
+            x, carry_in -> out
+
+            // AND A B
+            y: new And()
+            a[n], b[n] -> y
+
+            // AND X CARRY_IN
+            z: new And()
+            x, carry_in -> z
+
+            // OR Y Z
+            carry_out: new Or()
+            y, z -> carry_out
+
+            carry_in: carry_out
+        }
+    }
+}
+
+out: Adder<u8>(4, 8)[0]
