@@ -1,6 +1,7 @@
+from .compiler import ScrapCompiler, ir_to_blueprint
 from .simulation import simulate_ir
-from .compiler import compiler
 from .parser import parser
+import json
 import time
 import sys
 
@@ -10,11 +11,9 @@ def compile(source_file):
 
     ast = parser.parse(source)
 
-    gates = compiler.ScrapCompiler(ast).compile()
+    gates = ScrapCompiler(ast).compile()
 
-    IR = compiler.ScrapCompiler.gates_to_ir(gates)
-
-    return IR
+    return ScrapCompiler.gates_to_ir(gates)
 
 def sim(source_file, input_values):
     IR = compile(source_file)
@@ -33,6 +32,17 @@ if __name__ == '__main__':
 
             with open('out.ir', 'w') as f:
                 f.write(IR)
+
+        case 'blueprint':
+            t1 = time.time()
+
+            IR = compile(sys.argv[2])
+            blueprint = ir_to_blueprint(IR)
+
+            print(f'Took {(time.time()-t1)*1000:.4f} ms.')
+
+            with open('out.json', 'w') as f:
+                json.dump(blueprint, f, indent=2)
 
         case 'sim':
             print(sim(sys.argv[2], [int(i) for i in sys.argv[3:]]))

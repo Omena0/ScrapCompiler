@@ -38,4 +38,9 @@ module Adder() {
     }
 }
 
-out: Adder<u8>(4, 8).carry_out
+
+x: 5
+y: 5
+
+out: new Adder(x, y)
+
