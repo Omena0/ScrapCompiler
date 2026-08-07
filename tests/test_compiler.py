@@ -144,15 +144,15 @@ module Adder() {
     }
 
     gates {
-        dynamic(a) as n {
+        bits(a, b, sum) as (a, b, sum) {
             x: new Xor()
-            a[n], b[n] -> x
+            a, b -> x
 
-            out: new Xor(sum[n])
+            out: new Xor(sum)
             x, carry_in -> out
 
             y: new And()
-            a[n], b[n] -> y
+            a, b -> y
 
             z: new And()
             x, carry_in -> z
@@ -186,15 +186,15 @@ module Adder() {
     }
 
     gates {
-        dynamic(a) as n {
+        bits(a, b, sum) as (a, b, sum) {
             x: new Xor()
-            a[n], b[n] -> x
+            a, b -> x
 
-            out: new Xor(sum[n])
+            out: new Xor(sum)
             x, carry_in -> out
 
             y: new And()
-            a[n], b[n] -> y
+            a, b -> y
 
             z: new And()
             x, carry_in -> z
@@ -263,7 +263,7 @@ module Counter() {
     }
 
     gates {
-        dynamic(count) as i {
+        bits(count) {
             out: new Or()
         }
     }
@@ -448,7 +448,7 @@ module WidthTest() {
     }
 
     gates {
-        dynamic(width) as i {
+        bits(width) {
             out: new Or()
         }
     }
@@ -544,15 +544,15 @@ module Adder() {
     }
 
     gates {
-        dynamic(a) as n {
+        bits(a, b, sum) as (a, b, sum) {
             x: new Xor()
-            a[n], b[n] -> x
+            a, b -> x
 
-            out: new Xor(sum[n])
+            out: new Xor(sum)
             x, carry_in -> out
 
             y: new And()
-            a[n], b[n] -> y
+            a, b -> y
 
             z: new And()
             x, carry_in -> z

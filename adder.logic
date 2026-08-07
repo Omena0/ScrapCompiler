@@ -13,18 +13,18 @@ module Adder() {
     }
 
     gates {
-        dynamic(a) as n {
+        bits(a, b, sum) {
             // XOR A B
             x: new Xor()
-            a[n], b[n] -> x
+            a, b -> x
 
             // XOR X CARRY_IN
-            out: new Xor(sum[n])
+            out: new Xor(sum)
             x, carry_in -> out
 
             // AND A B
             y: new And()
-            a[n], b[n] -> y
+            a, b -> y
 
             // AND X CARRY_IN
             z: new And()

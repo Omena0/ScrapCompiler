@@ -208,12 +208,9 @@ class ModulesMixin(CompilerMixinBase):
             ]
 
         loop_symbols = {**symbols}
-        for idx, arg in enumerate(arguments):
-            if idx < len(variables):
-                var_name = variables[idx]
-                if isinstance(var_name, str) and var_name:
-                    arg_type = self.resolve_expression(arg, symbols)
-                    loop_symbols[var_name] = arg_type
+        for var_name in variables:
+            if isinstance(var_name, str) and var_name:
+                loop_symbols[var_name] = ResolvedType("bit")
 
         self._resolve_statements(gates, loop_symbols, statement)
 

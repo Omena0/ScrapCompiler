@@ -247,7 +247,7 @@ class LoweringMixin(CompilerMixinBase):
                     bit = arg_signal.bits[index]
                     loop_signals[var_name] = Signal(
                         (bit,),
-                        value_type=arg_signal.value_type,
+                        value_type=ResolvedType("bit"),
                     )
 
             start_key = self._allocator._next_key

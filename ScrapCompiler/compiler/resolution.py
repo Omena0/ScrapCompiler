@@ -289,7 +289,7 @@ class ResolutionMixin(CompilerMixinBase):
                 if argument_type.name != "bit":
                     self.error(
                         "TypeMismatchError",
-                        f"{name} accepts only bit inputs",
+                        f"{name} accepts only bit inputs: {argument_type.name}",
                         expression,
                     )
             return ResolvedType("bit")
