@@ -711,7 +711,7 @@ module TimerTest() {
     }
 }
 
-x: new TimerTest(1)
+out: new TimerTest(1)
 """
     ir = compile(source)
     result = simulate_ir(ir, [1])

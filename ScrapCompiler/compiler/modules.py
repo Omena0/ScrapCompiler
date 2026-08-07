@@ -25,6 +25,8 @@ class ModulesMixin(CompilerMixinBase):
             dec_name = decorator.get("name")
             if dec_name == "assert":
                 self._validate_assert_decorator(name, decorator, fields)
+            elif dec_name in ("ensure_timing", "pipelined", "clocked_input", "clocked_output"):
+                self._validate_timing_decorator(name, decorator)
 
         inputs = self._resolve_definitions(fields.get("inputs"), {}, module)
         outputs = self._resolve_definitions(fields.get("outputs"), inputs, module)
@@ -211,8 +213,27 @@ class ModulesMixin(CompilerMixinBase):
         for var_name in variables:
             if isinstance(var_name, str) and var_name:
                 loop_symbols[var_name] = ResolvedType("bit")
+        loop_symbols.setdefault("index", ResolvedType("int"))
 
         self._resolve_statements(gates, loop_symbols, statement)
+
+    def _validate_timing_decorator(
+        self, name: str, decorator: AstNode
+    ) -> None:
+        """Validate timing-related decorators."""
+        dec_name = decorator.get("name")
+        if dec_name == "pipelined":
+            args = decorator.get("args", [])
+            if isinstance(args, list) and args:
+                arg = args[0]
+                if isinstance(arg, dict) and arg.get("type") == "int":
+                    value = arg.get("value")
+                    if isinstance(value, int) and value <= 0:
+                        self.error(
+                            "InvalidDecoratorError",
+                            f"@pipelined requires a positive integer argument",
+                            decorator,
+                        )
 
     def _validate_assert_decorator(
         self, name: str, decorator: AstNode, fields: AstNode

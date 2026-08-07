@@ -6,6 +6,9 @@ import { DiagnosticsProvider } from "./diagnosticsProvider";
 
 export function activate(context: vscode.ExtensionContext) {
   const client = new LogicClient();
+  const outputChannel = vscode.window.createOutputChannel("Scrap Logic");
+
+  context.subscriptions.push(outputChannel);
 
   const hoverProvider = new HoverProvider(client);
   const completionProvider = new CompletionProvider(client);
@@ -40,8 +43,12 @@ export function activate(context: vscode.ExtensionContext) {
         return;
       }
 
+      outputChannel.clear();
+      outputChannel.show(true);
+
       try {
         const ir = await client.compile(editor.document.fileName);
+        outputChannel.appendLine("Compilation successful");
         const outputUri = editor.document.uri.with({
           path: editor.document.uri.path + ".ir",
         });
@@ -53,7 +60,9 @@ export function activate(context: vscode.ExtensionContext) {
         await vscode.window.showTextDocument(outputUri);
         vscode.window.showInformationMessage("Compilation successful");
       } catch (e: any) {
-        vscode.window.showErrorMessage(`Compilation failed: ${e.message}`);
+        const message = e.message || "Compilation failed";
+        outputChannel.appendLine(`Error: ${message}`);
+        vscode.window.showErrorMessage(`Compilation failed: ${message}`);
       }
     },
   );

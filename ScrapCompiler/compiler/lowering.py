@@ -119,7 +119,16 @@ class LoweringMixin(CompilerMixinBase):
             return self._constant_signal(value, actual_width, ResolvedType("dynamic"))
         if expression_type == "ident":
             name = expression.get("name")
-            if not isinstance(name, str) or name not in signals:
+            if not isinstance(name, str):
+                self.error(
+                    "InvalidExpressionError", "Invalid identifier expression", expression
+                )
+            if name == "index" and name in indices:
+                value = indices[name]
+                return self._constant_signal(
+                    value, max(value.bit_length(), 1), ResolvedType("int")
+                )
+            if name not in signals:
                 self.error(
                     "UnknownIdentifierError", f"Unknown identifier: {name}", expression
                 )
@@ -243,7 +252,7 @@ class LoweringMixin(CompilerMixinBase):
             ]
 
         for index in range(length):
-            loop_indices = {**indices}
+            loop_indices = {**indices, "index": index}
             loop_signals = {**signals}
             for idx, var_name in enumerate(variables):
                 if idx < len(lowered_args) and isinstance(var_name, str) and var_name:
@@ -578,6 +587,7 @@ class LoweringMixin(CompilerMixinBase):
                 inputs.extend(
                     self._expand_for_width(source, signal_width, index, expression)
                 )
+
             bits.append(
                 self._allocator.create(
                     IR_GATES[name],
@@ -587,6 +597,7 @@ class LoweringMixin(CompilerMixinBase):
                     value_type=formatted_value_type,
                 )
             )
+
         return Signal(tuple(bits), value_type=resolved_type)
 
     def _lower_cast(

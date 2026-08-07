@@ -4,8 +4,10 @@
   "scopeName": "source.logic",
   "patterns": [
     { "include": "#comments" },
+    { "include": "#decorators" },
     { "include": "#keywords" },
     { "include": "#types" },
+    { "include": "#builtins" },
     { "include": "#numbers" },
     { "include": "#operators" },
     { "include": "#strings" },
@@ -21,15 +23,19 @@
         }
       ]
     },
+    "decorators": {
+      "patterns": [
+        {
+          "name": "meta.decorator.logic",
+          "match": "@\\b(assert|ensure_timing|pipelined|clocked_input|clocked_output)\\b"
+        }
+      ]
+    },
     "keywords": {
       "patterns": [
         {
           "name": "keyword.control.logic",
-          "match": "\\b(module|inputs|outputs|gates|new|as)\\b"
-        },
-        {
-          "name": "keyword.other.logic",
-          "match": "\\b(dynamic|buffered|bit|bool|int)\\b"
+          "match": "\\b(module|inputs|outputs|gates|new|as|bits|optional)\\b"
         }
       ]
     },
@@ -37,7 +43,15 @@
       "patterns": [
         {
           "name": "storage.type.logic",
-          "match": "\\b(u|i)\\d+\\b"
+          "match": "\\b(dynamic|buffered|bit|bool|int|u|i)\\d*\\b"
+        }
+      ]
+    },
+    "builtins": {
+      "patterns": [
+        {
+          "name": "support.class.builtin.logic",
+          "match": "\\b(Xor|And|Or|Not|Nand|Nor|Xnor|Timer|Lamp|Switch|Button|IntInput|IntDisplay)\\b"
         }
       ]
     },
@@ -108,7 +122,7 @@
         },
         {
           "name": "storage.modifier.logic",
-          "match": "\\?|->"
+          "match": "\\?|->|@"
         }
       ]
     }

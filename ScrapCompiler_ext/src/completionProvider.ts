@@ -10,12 +10,36 @@ const KEYWORDS = [
   "buffered",
   "new",
   "as",
+  "bits",
+  "optional",
   "bit",
   "bool",
   "int",
 ];
 
-const BUILTIN_GATES = ["Xor", "And", "Or", "Not", "Nand", "Nor", "Xnor"];
+const BUILTIN_GATES = [
+  "Xor",
+  "And",
+  "Or",
+  "Not",
+  "Nand",
+  "Nor",
+  "Xnor",
+  "Timer",
+  "Lamp",
+  "Switch",
+  "Button",
+  "IntInput",
+  "IntDisplay",
+];
+
+const DECORATORS = [
+  "@assert",
+  "@ensure_timing",
+  "@pipelined",
+  "@clocked_input",
+  "@clocked_output",
+];
 
 const OPERATORS = [
   "+",
@@ -77,6 +101,15 @@ export class CompletionProvider implements vscode.CompletionItemProvider {
         vscode.CompletionItemKind.Class,
       );
       item.detail = "Built-in Gate";
+      items.push(item);
+    }
+
+    for (const dec of DECORATORS) {
+      const item = new vscode.CompletionItem(
+        dec,
+        vscode.CompletionItemKind.Snippet,
+      );
+      item.detail = "Decorator";
       items.push(item);
     }
 

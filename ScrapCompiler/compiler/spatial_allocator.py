@@ -21,16 +21,18 @@ class SpatialAllocator:
         default_state: int = 0,
         is_output_port: bool = False,
         delay: int = 0,
+        x: int | None = None,
     ) -> int:
         """Allocate a gate and return its internal handle."""
         key = self._next_key
         self._next_key += 1
 
-        max_input_x = 0
-        for input_key in inputs:
-            if input_key in self._gates:
-                max_input_x = max(max_input_x, self._gates[input_key].x)
-        x = max_input_x + 1 if inputs else 0
+        if x is None:
+            max_input_x = 0
+            for input_key in inputs:
+                if input_key in self._gates:
+                    max_input_x = max(max_input_x, self._gates[input_key].x)
+            x = max_input_x + 1 if inputs else 0
 
         z = 0
         for gate in self._gates.values():
@@ -117,10 +119,16 @@ class SpatialAllocator:
         gate = self._get(key)
         if not gate.inputs:
             time = 0
+
         else:
-            source_time = max(
-                self._time_for(source, times, visiting) for source in gate.inputs
-            )
+            if self._compact:
+                source_time = min(
+                    self._time_for(source, times, visiting) for source in gate.inputs
+                )
+            else:
+                source_time = max(
+                    self._time_for(source, times, visiting) for source in gate.inputs
+                )
             time = source_time + 1
 
         visiting.remove(key)
