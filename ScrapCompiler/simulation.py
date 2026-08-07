@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast, Union
+
+_dict_int_int = dict[int, int]
+_dict_int_list = dict[int, list[int]]
+
 
 @dataclass(frozen=True)
 class IrGate:
@@ -12,7 +16,7 @@ class IrGate:
     z: int
     type: str
     inputs: list[int]
-    value_type: str = 'bit'
+    value_type: str = "bit"
     default_state: int = 0
 
 
@@ -23,13 +27,13 @@ def parse_ir(ir: str) -> list[IrGate]:
 
     for line in ir.splitlines():
         stripped = line.strip()
-        if not stripped or stripped.startswith('#'):
+        if not stripped or stripped.startswith("#"):
             continue
 
-        if ':' not in stripped:
+        if ":" not in stripped:
             raise ValueError(f"Invalid IR line, missing id prefix: {line}")
 
-        id_text, remainder = stripped.split(':', 1)
+        id_text, remainder = stripped.split(":", 1)
         id_text = id_text.strip()
         try:
             gate_id = int(id_text)
@@ -40,8 +44,8 @@ def parse_ir(ir: str) -> list[IrGate]:
         if len(tokens) < 4:
             raise ValueError(f"Invalid IR gate line: {line}")
 
-        prefix = ''
-        if tokens[0] in {'IN', 'OUT'}:
+        prefix = ""
+        if tokens[0] in {"IN", "OUT"}:
             prefix = tokens[0]
             tokens = tokens[1:]
 
@@ -50,7 +54,7 @@ def parse_ir(ir: str) -> list[IrGate]:
         z = int(tokens[2])
         gate_type = tokens[3]
         default_state = 0
-        if gate_type == 'SWITCH' and len(tokens) > 4:
+        if gate_type == "SWITCH" and len(tokens) > 4:
             try:
                 default_state = int(tokens[-1])
                 inputs = [int(token) for token in tokens[4:-1]]
@@ -68,7 +72,7 @@ def parse_ir(ir: str) -> list[IrGate]:
                 z,
                 gate_type,
                 inputs,
-                id_to_type.get(gate_id, 'bit'),
+                id_to_type.get(gate_id, "bit"),
                 default_state,
             )
         )
@@ -80,14 +84,14 @@ def extract_type_comments(ir: str) -> dict[str, list[int]]:
     groups: dict[str, list[int]] = {}
     for line in ir.splitlines():
         stripped = line.strip()
-        if not stripped.startswith('#'):
+        if not stripped.startswith("#"):
             continue
 
         comment = stripped[1:].strip()
-        if ':' not in comment:
+        if ":" not in comment:
             continue
 
-        ids_text, type_name = comment.split(':', 1)
+        ids_text, type_name = comment.split(":", 1)
         ids_text = ids_text.strip()
         if not ids_text or not ids_text[0].isdigit():
             continue
@@ -101,14 +105,14 @@ def extract_variable_comments(ir: str) -> dict[str, list[int]]:
     groups: dict[str, list[int]] = {}
     for line in ir.splitlines():
         stripped = line.strip()
-        if not stripped.startswith('#'):
+        if not stripped.startswith("#"):
             continue
 
         comment = stripped[1:].strip()
-        if ':' not in comment:
+        if ":" not in comment:
             continue
 
-        var_name, ids_text = comment.split(':', 1)
+        var_name, ids_text = comment.split(":", 1)
         var_name = var_name.strip()
         ids_text = ids_text.strip()
         if not var_name or not var_name[0].isalpha():
@@ -117,7 +121,13 @@ def extract_variable_comments(ir: str) -> dict[str, list[int]]:
         groups[var_name] = ids
     return groups
 
-def simulate_ir(ir: str, input_values: dict[int, int] | dict[int, list[int]] | list[int] | tuple[int, ...] | None = None) -> dict[int, int]:
+
+def simulate_ir(
+    ir: str,
+    input_values: (
+        dict[int, int] | dict[int, list[int]] | list[int] | tuple[int, ...] | None
+    ) = None,
+) -> int | list[int] | dict[int, int]:
     """Simulate IR by evaluating every gate and returning values by id."""
     if input_values is None:
         input_values = {}
@@ -129,12 +139,12 @@ def simulate_ir(ir: str, input_values: dict[int, int] | dict[int, list[int]] | l
     values = _resolve_input_group_values(input_values, ordered_groups)
 
     for gate in gates:
-        if gate.prefix == 'IN':
+        if gate.prefix == "IN":
             continue
 
         inputs = [values[input_id] for input_id in gate.inputs]
 
-        if gate.type == 'NOT':
+        if gate.type == "NOT":
             if len(inputs) == 0:
                 values[gate.id] = 1
             elif len(inputs) == 1:
@@ -143,35 +153,35 @@ def simulate_ir(ir: str, input_values: dict[int, int] | dict[int, list[int]] | l
                 raise ValueError(f"NOT gate {gate.id} requires exactly one input")
             continue
 
-        if gate.type == 'OR':
+        if gate.type == "OR":
             values[gate.id] = 1 if any(inputs) else 0
             continue
 
-        if gate.type == 'AND':
+        if gate.type == "AND":
             values[gate.id] = 1 if all(inputs) else 0
             continue
 
-        if gate.type == 'XOR':
+        if gate.type == "XOR":
             values[gate.id] = 1 if sum(inputs) % 2 else 0
             continue
 
-        if gate.type == 'NAND':
+        if gate.type == "NAND":
             values[gate.id] = 0 if all(inputs) else 1
             continue
 
-        if gate.type == 'NOR':
+        if gate.type == "NOR":
             values[gate.id] = 0 if any(inputs) else 1
             continue
 
-        if gate.type == 'XNOR':
+        if gate.type == "XNOR":
             values[gate.id] = 0 if sum(inputs) % 2 else 1
             continue
 
-        if gate.type == 'LAMP':
+        if gate.type == "LAMP":
             values[gate.id] = inputs[0] if inputs else 0
             continue
 
-        if gate.type == 'SWITCH':
+        if gate.type == "SWITCH":
             values[gate.id] = gate.default_state if not inputs else inputs[0]
             continue
 
@@ -179,14 +189,15 @@ def simulate_ir(ir: str, input_values: dict[int, int] | dict[int, list[int]] | l
 
     return _collect_output_values(values, gates)
 
+
 def _parse_id_ranges(text: str) -> list[int]:
     ids: list[int] = []
-    for part in text.split(','):
+    for part in text.split(","):
         part = part.strip()
         if not part:
             continue
-        if '-' in part:
-            bounds = part.split('-', 1)
+        if "-" in part:
+            bounds = part.split("-", 1)
             if len(bounds) != 2:
                 raise ValueError(f"Invalid id range: {part}")
             start = int(bounds[0])
@@ -214,11 +225,13 @@ def _build_input_groups(
     variable_groups: dict[str, list[int]] | None = None,
 ) -> tuple[dict[int, list[int]], list[tuple[list[int], str]]]:
     groups: dict[int, list[int]] = {}
-    inputs = sorted((gate for gate in gates if gate.prefix == 'IN'), key=lambda gate: gate.id)
+    inputs = sorted(
+        (gate for gate in gates if gate.prefix == "IN"), key=lambda gate: gate.id
+    )
     ordered_groups: list[tuple[list[int], str]] = []
 
     if type_groups and variable_groups:
-        input_ids = {gate.id for gate in gates if gate.prefix == 'IN'}
+        input_ids = {gate.id for gate in gates if gate.prefix == "IN"}
         variable_input_groups: dict[str, list[int]] = {}
         for var_name, ids in variable_groups.items():
             var_in_ids = [gate_id for gate_id in ids if gate_id in input_ids]
@@ -240,7 +253,11 @@ def _build_input_groups(
         if variable_groups_list:
             remaining_type_groups: dict[str, list[int]] = {}
             for type_name, ids in type_groups.items():
-                remaining = [gate_id for gate_id in ids if gate_id in input_ids and gate_id not in used_ids]
+                remaining = [
+                    gate_id
+                    for gate_id in ids
+                    if gate_id in input_ids and gate_id not in used_ids
+                ]
                 if remaining:
                     remaining_type_groups[type_name] = remaining
 
@@ -258,10 +275,12 @@ def _build_input_groups(
 
     if type_groups:
         groups_list: list[tuple[list[int], str]] = []
-        input_ids = {gate.id for gate in gates if gate.prefix == 'IN'}
+        input_ids = {gate.id for gate in gates if gate.prefix == "IN"}
         for type_name, ids in type_groups.items():
             width = _type_width(type_name)
-            input_ids_for_type = sorted([gate_id for gate_id in ids if gate_id in input_ids])
+            input_ids_for_type = sorted(
+                [gate_id for gate_id in ids if gate_id in input_ids]
+            )
             for group_ids in _chunk(input_ids_for_type, width):
                 groups_list.append((group_ids, type_name))
         groups_list.sort(key=lambda item: item[0][0])
@@ -318,32 +337,38 @@ def _split_consecutive(ids: list[int], width: int = 1) -> list[list[int]]:
 
 def _chunk(ids: list[int], size: int) -> list[list[int]]:
     """Split a list into fixed-size chunks."""
-    return [ids[i:i + size] for i in range(0, len(ids), size)]
+    return [ids[i : i + size] for i in range(0, len(ids), size)]
 
 
 def _type_width(type_name: str) -> int:
     """Return the bit width for a type name like u8, i16, bit, or dynamic."""
-    if type_name.startswith('u') or type_name.startswith('i'):
+    if type_name.startswith("u") or type_name.startswith("i"):
         try:
             return int(type_name[1:])
         except ValueError:
             return 1
-    if type_name.startswith('dynamic'):
+    if type_name.startswith("dynamic"):
         return 1
     return 1
 
 
-def _cast_to_bits(raw_value: int | list[int], type_name: str, ids: list[int]) -> dict[int, int]:
+def _cast_to_bits(
+    raw_value: int | list[int], type_name: str, ids: list[int]
+) -> dict[int, int]:
     if isinstance(raw_value, list):
         if len(raw_value) != len(ids):
-            raise ValueError(f"Expected {len(ids)} bits for {type_name}, got {len(raw_value)}")
+            raise ValueError(
+                f"Expected {len(ids)} bits for {type_name}, got {len(raw_value)}"
+            )
         return dict(zip(ids, raw_value))
 
     if not isinstance(raw_value, int):
-        raise ValueError(f"Unsupported raw input type for {type_name}: {type(raw_value).__name__}")
+        raise ValueError(
+            f"Unsupported raw input type for {type_name}: {type(raw_value).__name__}"
+        )
 
     width = len(ids)
-    if type_name.startswith('u') or type_name.startswith('i'):
+    if type_name.startswith("u") or type_name.startswith("i"):
         mask = (1 << width) - 1
         value = raw_value & mask
     else:
@@ -366,29 +391,32 @@ def _resolve_input_group_values(
         return values
 
     if isinstance(input_values, dict):
-        # Prefer group-level values keyed by the first gate id; fall back to per-bit values.
+        dict_inputs = cast('_dict_int_int | _dict_int_list', input_values)
         for group, type_name in ordered_groups:
             first_id = group[0]
-            if first_id in input_values:
-                raw_value = input_values[first_id]
-                values.update(_cast_to_bits(raw_value, type_name, group))
+            if first_id in dict_inputs:
+                group_value = dict_inputs[first_id]
+                if isinstance(group_value, (int, list)):
+                    values.update(_cast_to_bits(group_value, type_name, group))
                 continue
             for gate_id in group:
-                if gate_id in input_values:
-                    raw_value = input_values[gate_id]
-                    if isinstance(raw_value, int):
-                        values[gate_id] = raw_value & 1
+                if gate_id in dict_inputs:
+                    bit_value = dict_inputs[gate_id]
+                    if isinstance(bit_value, int):
+                        values[gate_id] = bit_value & 1
                     else:
                         raise ValueError(f"Bit input values must be ints for gate {gate_id}")
                 else:
                     values[gate_id] = 0
         return values
 
-    raise ValueError('Unsupported input_values type')
+    raise ValueError("Unsupported input_values type")
 
 
-def _collect_output_values(values: dict[int, int], gates: list[IrGate]) -> int | list[int] | dict[int, int]:
-    output_gates = [gate for gate in gates if gate.prefix == 'OUT']
+def _collect_output_values(
+    values: dict[int, int], gates: list[IrGate]
+) -> int | list[int] | dict[int, int]:
+    output_gates = [gate for gate in gates if gate.prefix == "OUT"]
     if not output_gates:
         return values
 
@@ -397,8 +425,7 @@ def _collect_output_values(values: dict[int, int], gates: list[IrGate]) -> int |
     if len(output_ids) == 1:
         return values[output_ids[0]]
 
-    if all(gate.value_type == 'bit' for gate in output_gates):
+    if all(gate.value_type == "bit" for gate in output_gates):
         return sum(values[gate_id] << index for index, gate_id in enumerate(output_ids))
 
     return [values[gate_id] for gate_id in output_ids]
-

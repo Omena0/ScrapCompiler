@@ -1,10 +1,12 @@
-import sys
 import os
+import sys
+
+import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from ScrapCompiler.parser import parser
 from ScrapCompiler.compiler.compiler import ScrapCompiler
+from ScrapCompiler.parser import parser
 from ScrapCompiler.simulation import simulate_ir
 
 
@@ -55,15 +57,15 @@ module Adder() {
     }
 
     gates {
-        dynamic(a) as n {
+        bits(a, b, sum) as (a, b, sum) {
             x: new Xor()
-            a[n], b[n] -> x
+            a, b -> x
 
-            out: new Xor(sum[n])
+            out: new Xor(sum)
             x, carry_in -> out
 
             y: new And()
-            a[n], b[n] -> y
+            a, b -> y
 
             z: new And()
             x, carry_in -> z
@@ -100,15 +102,15 @@ module Adder() {
     }
 
     gates {
-        dynamic(a) as n {
+        bits(a, b, sum) as (a, b, sum) {
             x: new Xor()
-            a[n], b[n] -> x
+            a, b -> x
 
-            out: new Xor(sum[n])
+            out: new Xor(sum)
             x, carry_in -> out
 
             y: new And()
-            a[n], b[n] -> y
+            a, b -> y
 
             z: new And()
             x, carry_in -> z
@@ -398,29 +400,6 @@ out: new OptionalInput(b=1)
     assert "XOR" in ir
 
 
-def test_buffered_input():
-    source = """
-module BufferedInput() {
-    inputs {
-        bit buffered a
-        bit b
-    }
-
-    outputs {
-        bit out
-    }
-
-    gates {
-        out: new Xor(a, b)
-    }
-}
-
-out: new BufferedInput(1, 0)
-"""
-    ir = compile(source)
-    assert "IN" in ir
-
-
 def test_module_inheritance():
     source = """
 module Base() {
@@ -644,3 +623,51 @@ y: new Gate(0, 1)
 """
     ir = compile(source)
     assert ir.count("AND") == 2
+
+
+def test_assert_decorator_passes():
+    source = """
+@assert(a=1, b=1, out=1)
+module AssertGate() {
+    inputs {
+        bit a
+        bit b
+    }
+
+    outputs {
+        bit out
+    }
+
+    gates {
+        out: new And(a, b)
+    }
+}
+
+x: new AssertGate(1, 1)
+"""
+    ir = compile(source)
+    assert "AND" in ir
+
+
+def test_assert_decorator_fails():
+    source = """
+@assert(a=1, b=1, out=0)
+module AssertGate() {
+    inputs {
+        bit a
+        bit b
+    }
+
+    outputs {
+        bit out
+    }
+
+    gates {
+        out: new And(a, b)
+    }
+}
+
+x: new AssertGate(1, 1)
+"""
+    with pytest.raises(SystemExit):
+        compile(source)

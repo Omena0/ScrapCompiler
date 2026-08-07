@@ -1,4 +1,4 @@
-from pyray import * # type: ignore
+from pyray import *  # type: ignore
 
 VARIABLE_COLORS = [
     (230, 25, 75),
@@ -29,7 +29,13 @@ GATE_COLORS = {
     "NAND": (0, 220, 220),
     "NOR": (180, 0, 255),
     "XNOR": (220, 220, 220),
+    "SWITCH": (128, 128, 128),
+    "BUTTON": (255, 140, 0),
+    "LAMP": (255, 255, 0),
 }
+
+HALF_HEIGHT_GATES = {"SWITCH", "BUTTON", "LAMP"}
+
 
 def draw_cube_wires_thick(pos, size, thickness, color):
     x, y, z = pos
@@ -40,20 +46,20 @@ def draw_cube_wires_thick(pos, size, thickness, color):
     hy = height / 2
     hz = length / 2
 
-    draw_cube_v(Vector3(x, y-hy, z-hz), Vector3(width, t, t), color)
-    draw_cube_v(Vector3(x, y+hy, z-hz), Vector3(width, t, t), color)
-    draw_cube_v(Vector3(x, y-hy, z+hz), Vector3(width, t, t), color)
-    draw_cube_v(Vector3(x, y+hy, z+hz), Vector3(width, t, t), color)
+    draw_cube_v(Vector3(x, y - hy, z - hz), Vector3(width, t, t), color)
+    draw_cube_v(Vector3(x, y + hy, z - hz), Vector3(width, t, t), color)
+    draw_cube_v(Vector3(x, y - hy, z + hz), Vector3(width, t, t), color)
+    draw_cube_v(Vector3(x, y + hy, z + hz), Vector3(width, t, t), color)
 
-    draw_cube_v(Vector3(x-hx, y, z-hz), Vector3(t, height, t), color)
-    draw_cube_v(Vector3(x+hx, y, z-hz), Vector3(t, height, t), color)
-    draw_cube_v(Vector3(x-hx, y, z+hz), Vector3(t, height, t), color)
-    draw_cube_v(Vector3(x+hx, y, z+hz), Vector3(t, height, t), color)
+    draw_cube_v(Vector3(x - hx, y, z - hz), Vector3(t, height, t), color)
+    draw_cube_v(Vector3(x + hx, y, z - hz), Vector3(t, height, t), color)
+    draw_cube_v(Vector3(x - hx, y, z + hz), Vector3(t, height, t), color)
+    draw_cube_v(Vector3(x + hx, y, z + hz), Vector3(t, height, t), color)
 
-    draw_cube_v(Vector3(x-hx, y-hy, z), Vector3(t, t, length), color)
-    draw_cube_v(Vector3(x+hx, y-hy, z), Vector3(t, t, length), color)
-    draw_cube_v(Vector3(x-hx, y+hy, z), Vector3(t, t, length), color)
-    draw_cube_v(Vector3(x+hx, y+hy, z), Vector3(t, t, length), color)
+    draw_cube_v(Vector3(x - hx, y - hy, z), Vector3(t, t, length), color)
+    draw_cube_v(Vector3(x + hx, y - hy, z), Vector3(t, t, length), color)
+    draw_cube_v(Vector3(x - hx, y + hy, z), Vector3(t, t, length), color)
+    draw_cube_v(Vector3(x + hx, y + hy, z), Vector3(t, t, length), color)
 
 
 def load_ir(ir):
@@ -65,20 +71,20 @@ def load_ir(ir):
     for line in ir.splitlines():
         stripped = line.strip()
 
-        if stripped.startswith('#'):
-            if ':' in stripped:
-                ids_text, rest = stripped[1:].split(':', 1)
+        if stripped.startswith("#"):
+            if ":" in stripped:
+                ids_text, rest = stripped[1:].split(":", 1)
                 ids_text = ids_text.strip()
                 rest = rest.strip()
 
-                if ids_text and rest and not any(c in rest for c in ['u', 'i', 'bit']):
+                if ids_text and rest and not any(c in rest for c in ["u", "i", "bit"]):
                     variable = ids_text
                     ids = []
-                    for part in rest.split(','):
+                    for part in rest.split(","):
                         part = part.strip()
 
-                        if '-' in part:
-                            start, end = part.split('-', 1)
+                        if "-" in part:
+                            start, end = part.split("-", 1)
                             ids.extend(range(int(start), int(end) + 1))
 
                         else:
@@ -87,7 +93,7 @@ def load_ir(ir):
                     variables.update({gate_id: variable for gate_id in ids})
             continue
 
-        parts = stripped.split(':', 1)
+        parts = stripped.split(":", 1)
         if len(parts) != 2:
             continue
 
@@ -98,8 +104,8 @@ def load_ir(ir):
         if not tokens:
             continue
 
-        prefix = ''
-        if tokens[0] in {'IN', 'OUT'}:
+        prefix = ""
+        if tokens[0] in {"IN", "OUT"}:
             prefix = tokens[0]
             tokens = tokens[1:]
 
@@ -111,7 +117,7 @@ def load_ir(ir):
             gate_type = tokens[3]
             inputs = [int(token) for token in tokens[4:]]
         except ValueError:
-            print(f'Invalid gate: {line}. Skipping.')
+            print(f"Invalid gate: {line}. Skipping.")
             continue
 
         if x > maxX:
@@ -134,7 +140,7 @@ def get_variable_color(variable, color_map):
 
 def run(ir: str):
     gates, variables, maxX, maxZ = load_ir(ir)
-    color_map = {}
+    color_map: dict[str, tuple[int, int, int]] = {}
 
     init_window(1000, 700, "Visualization")
 
@@ -157,14 +163,17 @@ def run(ir: str):
             x -= maxX // 2
             z -= maxZ // 2
 
-            variable = variables.get(gate_id, '')
+            variable = variables.get(gate_id, "")
             var_color = get_variable_color(variable, color_map)
 
+            size = (1, 0.5, 1) if gate_type in HALF_HEIGHT_GATES else (1, 1, 1)
+            pos = (x, y + 0.25, z) if gate_type in HALF_HEIGHT_GATES else (x, y, z)
+
             if var_color:
-                draw_cube_v(Vector3(x, y, z), Vector3(0.95, 0.95, 0.95), Color(*var_color, 50)) # type: ignore
+                draw_cube_v(Vector3(*pos), Vector3(*size), Color(*var_color, 50))  # type: ignore
 
             r, g, b = GATE_COLORS.get(gate_type, (150, 150, 150))
-            draw_cube_wires_thick((x, y, z), (1, 1, 1), 0.05, Color(r, g, b, 255))
+            draw_cube_wires_thick(pos, size, 0.05, Color(r, g, b, 255))
 
         end_mode_3d()
         end_drawing()
@@ -172,8 +181,8 @@ def run(ir: str):
     close_window()
 
 
-if __name__ == '__main__':
-    with open('out.ir') as f:
+if __name__ == "__main__":
+    with open("out.ir") as f:
         ir = f.read()
 
     run(ir)

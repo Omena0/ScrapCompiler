@@ -1,5 +1,6 @@
 from .types import *
 
+
 class SpatialAllocator:
     """Own gate handles and calculate deterministic spatial IR positions."""
 
@@ -14,9 +15,9 @@ class SpatialAllocator:
         gate_type: str,
         inputs: list[int],
         y: int,
-        prefix: GatePrefix = '',
-        value_type: str = 'bit',
-        variable: str = '',
+        prefix: GatePrefix = "",
+        value_type: str = "bit",
+        variable: str = "",
         default_state: int = 0,
         is_output_port: bool = False,
     ) -> int:
@@ -35,7 +36,19 @@ class SpatialAllocator:
             if gate.x == x and gate.y == y:
                 z += 1
 
-        self._gates[key] = Gate(gate_type, list(inputs), x, y, z, prefix, key, value_type, variable, default_state, is_output_port)
+        self._gates[key] = Gate(
+            gate_type,
+            list(inputs),
+            x,
+            y,
+            z,
+            prefix,
+            key,
+            value_type,
+            variable,
+            default_state,
+            is_output_port,
+        )
         return key
 
     def inherit(self, key: int, gate_type: str, value_type: str | None = None) -> None:
@@ -52,15 +65,15 @@ class SpatialAllocator:
 
     def mark_input(self, key: int) -> None:
         """Mark an existing gate handle as an input boundary."""
-        self._get(key).prefix = 'IN'
+        self._get(key).prefix = "IN"
 
     def mark_output(self, key: int) -> None:
         """Mark an existing gate handle as an input boundary."""
-        self._get(key).prefix = 'OUT'
+        self._get(key).prefix = "OUT"
 
     def is_output(self, key: int) -> bool:
         """Return whether a handle belongs to an output-prefixed gate."""
-        return self._get(key).prefix == 'OUT'
+        return self._get(key).prefix == "OUT"
 
     def is_output_port(self, key: int) -> bool:
         """Return whether a handle belongs to a module output port."""
@@ -81,8 +94,8 @@ class SpatialAllocator:
 
         xy_groups: dict[tuple[int, int], list[Gate]] = {}
         for gate in self._gates.values():
-            key = (gate.x, gate.y)
-            xy_groups.setdefault(key, []).append(gate)
+            pos = (gate.x, gate.y)
+            xy_groups.setdefault(pos, []).append(gate)
 
         for group in xy_groups.values():
             group.sort(key=lambda g: g.key)
@@ -96,17 +109,16 @@ class SpatialAllocator:
         if key in times:
             return times[key]
         if key in visiting:
-            raise ValueError('IR gates cannot contain a dependency cycle')
+            raise ValueError("IR gates cannot contain a dependency cycle")
 
         visiting.add(key)
         gate = self._get(key)
         if not gate.inputs:
             time = 0
         else:
-            if self._compact:
-                source_time = min(self._time_for(source, times, visiting) for source in gate.inputs)
-            else:
-                source_time = max(self._time_for(source, times, visiting) for source in gate.inputs)
+            source_time = max(
+                self._time_for(source, times, visiting) for source in gate.inputs
+            )
             time = source_time + 1
 
         visiting.remove(key)
@@ -119,4 +131,3 @@ class SpatialAllocator:
             return self._gates[key]
         except KeyError as error:
             raise ValueError(f"Unknown gate handle: {key}") from error
-
