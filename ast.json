@@ -8,22 +8,37 @@
             "name": "a",
             "type": "dynamic",
             "len": null,
-            "optional": false
+            "optional": false,
+            "buffered": false,
+            "line": 5,
+            "column": 18,
+            "error": "        dynamic a"
           },
           {
             "name": "b",
             "type": "dynamic",
             "len": {
               "type": "ident",
-              "name": "a"
+              "name": "a",
+              "line": 6,
+              "column": 18,
+              "error": "        dynamic[a] b"
             },
-            "optional": false
+            "optional": false,
+            "buffered": false,
+            "line": 6,
+            "column": 21,
+            "error": "        dynamic[a] b"
           },
           {
             "name": "carry_in",
             "type": "bit",
             "len": null,
-            "optional": true
+            "optional": true,
+            "buffered": false,
+            "line": 7,
+            "column": 22,
+            "error": "        bit ?carry_in"
           }
         ],
         "outputs": [
@@ -32,17 +47,31 @@
             "type": "dynamic",
             "len": {
               "type": "ident",
-              "name": "a"
+              "name": "a",
+              "line": 11,
+              "column": 18,
+              "error": "        dynamic[a] sum"
             },
-            "optional": false
+            "optional": false,
+            "buffered": false,
+            "line": 11,
+            "column": 23,
+            "error": "        dynamic[a] sum"
           },
           {
             "name": "carry_out",
             "type": "bit",
             "len": null,
-            "optional": false
+            "optional": false,
+            "buffered": false,
+            "line": 12,
+            "column": 22,
+            "error": "        bit carry_out"
           }
-        ]
+        ],
+        "line": 40,
+        "column": 2,
+        "error": "}"
       },
       "gates": [
         {
@@ -51,7 +80,10 @@
           "args": [
             {
               "type": "ident",
-              "name": "a"
+              "name": "a",
+              "line": 16,
+              "column": 18,
+              "error": "        dynamic(a) as n {"
             }
           ],
           "var": "n",
@@ -64,9 +96,18 @@
                 "value": {
                   "type": "call",
                   "name": "Xor",
-                  "args": []
-                }
-              }
+                  "args": [],
+                  "line": 19,
+                  "column": 13,
+                  "error": "            a[n], b[n] -> x"
+                },
+                "line": 19,
+                "column": 13,
+                "error": "            a[n], b[n] -> x"
+              },
+              "line": 19,
+              "column": 13,
+              "error": "            a[n], b[n] -> x"
             },
             {
               "type": "arrow",
@@ -75,26 +116,47 @@
                   "type": "index",
                   "value": {
                     "type": "ident",
-                    "name": "a"
+                    "name": "a",
+                    "line": 19,
+                    "column": 14,
+                    "error": "            a[n], b[n] -> x"
                   },
                   "index": {
                     "type": "ident",
-                    "name": "n"
-                  }
+                    "name": "n",
+                    "line": 19,
+                    "column": 16,
+                    "error": "            a[n], b[n] -> x"
+                  },
+                  "line": 19,
+                  "column": 17,
+                  "error": "            a[n], b[n] -> x"
                 },
                 {
                   "type": "index",
                   "value": {
                     "type": "ident",
-                    "name": "b"
+                    "name": "b",
+                    "line": 19,
+                    "column": 20,
+                    "error": "            a[n], b[n] -> x"
                   },
                   "index": {
                     "type": "ident",
-                    "name": "n"
-                  }
+                    "name": "n",
+                    "line": 19,
+                    "column": 22,
+                    "error": "            a[n], b[n] -> x"
+                  },
+                  "line": 19,
+                  "column": 23,
+                  "error": "            a[n], b[n] -> x"
                 }
               ],
-              "to": "x"
+              "to": "x",
+              "line": 21,
+              "column": 13,
+              "error": "            // XOR X CARRY_IN"
             },
             {
               "type": "gate",
@@ -109,30 +171,57 @@
                       "type": "index",
                       "value": {
                         "type": "ident",
-                        "name": "sum"
+                        "name": "sum",
+                        "line": 22,
+                        "column": 29,
+                        "error": "            out: new Xor(sum[n])"
                       },
                       "index": {
                         "type": "ident",
-                        "name": "n"
-                      }
+                        "name": "n",
+                        "line": 22,
+                        "column": 31,
+                        "error": "            out: new Xor(sum[n])"
+                      },
+                      "line": 22,
+                      "column": 32,
+                      "error": "            out: new Xor(sum[n])"
                     }
-                  ]
-                }
-              }
+                  ],
+                  "line": 23,
+                  "column": 13,
+                  "error": "            x, carry_in -> out"
+                },
+                "line": 23,
+                "column": 13,
+                "error": "            x, carry_in -> out"
+              },
+              "line": 23,
+              "column": 13,
+              "error": "            x, carry_in -> out"
             },
             {
               "type": "arrow",
               "from": [
                 {
                   "type": "ident",
-                  "name": "x"
+                  "name": "x",
+                  "line": 23,
+                  "column": 14,
+                  "error": "            x, carry_in -> out"
                 },
                 {
                   "type": "ident",
-                  "name": "carry_in"
+                  "name": "carry_in",
+                  "line": 23,
+                  "column": 24,
+                  "error": "            x, carry_in -> out"
                 }
               ],
-              "to": "out"
+              "to": "out",
+              "line": 25,
+              "column": 13,
+              "error": "            // AND A B"
             },
             {
               "type": "gate",
@@ -142,9 +231,18 @@
                 "value": {
                   "type": "call",
                   "name": "And",
-                  "args": []
-                }
-              }
+                  "args": [],
+                  "line": 27,
+                  "column": 13,
+                  "error": "            a[n], b[n] -> y"
+                },
+                "line": 27,
+                "column": 13,
+                "error": "            a[n], b[n] -> y"
+              },
+              "line": 27,
+              "column": 13,
+              "error": "            a[n], b[n] -> y"
             },
             {
               "type": "arrow",
@@ -153,26 +251,47 @@
                   "type": "index",
                   "value": {
                     "type": "ident",
-                    "name": "a"
+                    "name": "a",
+                    "line": 27,
+                    "column": 14,
+                    "error": "            a[n], b[n] -> y"
                   },
                   "index": {
                     "type": "ident",
-                    "name": "n"
-                  }
+                    "name": "n",
+                    "line": 27,
+                    "column": 16,
+                    "error": "            a[n], b[n] -> y"
+                  },
+                  "line": 27,
+                  "column": 17,
+                  "error": "            a[n], b[n] -> y"
                 },
                 {
                   "type": "index",
                   "value": {
                     "type": "ident",
-                    "name": "b"
+                    "name": "b",
+                    "line": 27,
+                    "column": 20,
+                    "error": "            a[n], b[n] -> y"
                   },
                   "index": {
                     "type": "ident",
-                    "name": "n"
-                  }
+                    "name": "n",
+                    "line": 27,
+                    "column": 22,
+                    "error": "            a[n], b[n] -> y"
+                  },
+                  "line": 27,
+                  "column": 23,
+                  "error": "            a[n], b[n] -> y"
                 }
               ],
-              "to": "y"
+              "to": "y",
+              "line": 29,
+              "column": 13,
+              "error": "            // AND X CARRY_IN"
             },
             {
               "type": "gate",
@@ -182,23 +301,41 @@
                 "value": {
                   "type": "call",
                   "name": "And",
-                  "args": []
-                }
-              }
+                  "args": [],
+                  "line": 31,
+                  "column": 13,
+                  "error": "            x, carry_in -> z"
+                },
+                "line": 31,
+                "column": 13,
+                "error": "            x, carry_in -> z"
+              },
+              "line": 31,
+              "column": 13,
+              "error": "            x, carry_in -> z"
             },
             {
               "type": "arrow",
               "from": [
                 {
                   "type": "ident",
-                  "name": "x"
+                  "name": "x",
+                  "line": 31,
+                  "column": 14,
+                  "error": "            x, carry_in -> z"
                 },
                 {
                   "type": "ident",
-                  "name": "carry_in"
+                  "name": "carry_in",
+                  "line": 31,
+                  "column": 24,
+                  "error": "            x, carry_in -> z"
                 }
               ],
-              "to": "z"
+              "to": "z",
+              "line": 33,
+              "column": 13,
+              "error": "            // OR Y Z"
             },
             {
               "type": "gate",
@@ -208,63 +345,210 @@
                 "value": {
                   "type": "call",
                   "name": "Or",
-                  "args": []
-                }
-              }
+                  "args": [],
+                  "line": 35,
+                  "column": 13,
+                  "error": "            y, z -> carry_out"
+                },
+                "line": 35,
+                "column": 13,
+                "error": "            y, z -> carry_out"
+              },
+              "line": 35,
+              "column": 13,
+              "error": "            y, z -> carry_out"
             },
             {
               "type": "arrow",
               "from": [
                 {
                   "type": "ident",
-                  "name": "y"
+                  "name": "y",
+                  "line": 35,
+                  "column": 14,
+                  "error": "            y, z -> carry_out"
                 },
                 {
                   "type": "ident",
-                  "name": "z"
+                  "name": "z",
+                  "line": 35,
+                  "column": 17,
+                  "error": "            y, z -> carry_out"
                 }
               ],
-              "to": "carry_out"
+              "to": "carry_out",
+              "line": 37,
+              "column": 13,
+              "error": "            carry_in: carry_out"
             },
             {
               "type": "gate",
               "name": "carry_in",
               "value": {
                 "type": "ident",
-                "name": "carry_out"
-              }
+                "name": "carry_out",
+                "line": 37,
+                "column": 32,
+                "error": "            carry_in: carry_out"
+              },
+              "line": 38,
+              "column": 9,
+              "error": "        }"
             }
-          ]
+          ],
+          "line": 39,
+          "column": 5,
+          "error": "    }"
         }
-      ]
+      ],
+      "line": 40,
+      "column": 2,
+      "error": "}"
     }
   },
   "gates": [
     {
       "type": "gate",
-      "name": "out",
+      "name": "x",
       "value": {
-        "type": "index",
+        "type": "new",
         "value": {
           "type": "call",
-          "name": "Adder",
-          "cast_type": "u8",
+          "name": "IntInput",
           "args": [
             {
-              "type": "int",
-              "value": 4
-            },
-            {
-              "type": "int",
-              "value": 8
+              "type": "ident",
+              "name": "u8",
+              "line": 43,
+              "column": 19,
+              "error": "x: new IntInput(u8)"
             }
-          ]
+          ],
+          "line": 44,
+          "column": 1,
+          "error": "y: new IntInput(u8)"
         },
-        "index": {
-          "type": "int",
-          "value": 0
+        "line": 44,
+        "column": 1,
+        "error": "y: new IntInput(u8)"
+      },
+      "line": 44,
+      "column": 1,
+      "error": "y: new IntInput(u8)"
+    },
+    {
+      "type": "gate",
+      "name": "y",
+      "value": {
+        "type": "new",
+        "value": {
+          "type": "call",
+          "name": "IntInput",
+          "args": [
+            {
+              "type": "ident",
+              "name": "u8",
+              "line": 44,
+              "column": 19,
+              "error": "y: new IntInput(u8)"
+            }
+          ],
+          "line": 46,
+          "column": 1,
+          "error": "// Add them"
+        },
+        "line": 47,
+        "column": 1,
+        "error": "adder: Adder(x, y)"
+      },
+      "line": 47,
+      "column": 1,
+      "error": "adder: Adder(x, y)"
+    },
+    {
+      "type": "gate",
+      "name": "adder",
+      "value": {
+        "type": "call",
+        "name": "Adder",
+        "args": [
+          {
+            "type": "ident",
+            "name": "x",
+            "line": 47,
+            "column": 15,
+            "error": "adder: Adder(x, y)"
+          },
+          {
+            "type": "ident",
+            "name": "y",
+            "line": 47,
+            "column": 18,
+            "error": "adder: Adder(x, y)"
+          }
+        ],
+        "line": 49,
+        "column": 1,
+        "error": "// Display result"
+      },
+      "line": 50,
+      "column": 1,
+      "error": "out: new IntDisplay(u8)"
+    },
+    {
+      "type": "gate",
+      "name": "out",
+      "value": {
+        "type": "new",
+        "value": {
+          "type": "call",
+          "name": "IntDisplay",
+          "args": [
+            {
+              "type": "ident",
+              "name": "u8",
+              "line": 50,
+              "column": 23,
+              "error": "out: new IntDisplay(u8)"
+            }
+          ],
+          "line": 51,
+          "column": 1,
+          "error": "adder.sum -> out"
+        },
+        "line": 51,
+        "column": 1,
+        "error": "adder.sum -> out"
+      },
+      "line": 51,
+      "column": 1,
+      "error": "adder.sum -> out"
+    },
+    {
+      "type": "arrow",
+      "from": [
+        {
+          "type": "field",
+          "value": {
+            "type": "ident",
+            "name": "adder",
+            "line": 51,
+            "column": 6,
+            "error": "adder.sum -> out"
+          },
+          "name": "sum",
+          "line": 51,
+          "column": 10,
+          "error": "adder.sum -> out"
         }
-      }
+      ],
+      "to": "out",
+      "line": 51,
+      "column": 17,
+      "error": "adder.sum -> out"
     }
-  ]
+  ],
+  "line": 1,
+  "column": 1,
+  "error": ""
 }

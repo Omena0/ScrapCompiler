@@ -11,7 +11,7 @@ def compile(source_file):
 
     ast = parser.parse(source)
 
-    gates = ScrapCompiler(ast).compile()
+    gates = ScrapCompiler(ast, '-d' in sys.argv).compile()
 
     return ScrapCompiler.gates_to_ir(gates)
 
@@ -23,6 +23,15 @@ def sim(source_file, input_values):
 if __name__ == '__main__':
     option = sys.argv[1]
     match option:
+        case 'ast':
+            with open(sys.argv[2]) as f:
+                source = f.read()
+
+            ast = parser.parse(source)
+
+            with open('ast.json', 'w') as f:
+                json.dump(ast, f, indent=2)
+
         case 'compile':
             t1 = time.time()
 
@@ -47,3 +56,11 @@ if __name__ == '__main__':
         case 'sim':
             print(sim(sys.argv[2], [int(i) for i in sys.argv[3:]]))
 
+        case 'vis':
+            from .visualize import run
+
+            t1 = time.time()
+            IR = compile(sys.argv[2])
+            print(f'Took {(time.time()-t1)*1000:.4f} ms.')
+
+            run(IR)

@@ -1,0 +1,116 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Logic",
+  "scopeName": "source.logic",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#keywords" },
+    { "include": "#types" },
+    { "include": "#numbers" },
+    { "include": "#operators" },
+    { "include": "#strings" },
+    { "include": "#identifiers" },
+    { "include": "#punctuation" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.logic",
+          "match": "//.*$"
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.logic",
+          "match": "\\b(module|inputs|outputs|gates|new|as)\\b"
+        },
+        {
+          "name": "keyword.other.logic",
+          "match": "\\b(dynamic|buffered|bit|bool|int)\\b"
+        }
+      ]
+    },
+    "types": {
+      "patterns": [
+        {
+          "name": "storage.type.logic",
+          "match": "\\b(u|i)\\d+\\b"
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.integer.logic",
+          "match": "\\b\\d+\\b"
+        },
+        {
+          "name": "constant.numeric.integer.hex.logic",
+          "match": "\\b0x[0-9a-fA-F]+\\b"
+        },
+        {
+          "name": "constant.numeric.integer.binary.logic",
+          "match": "\\b0b[01]+\\b"
+        }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        {
+          "name": "keyword.operator.arithmetic.logic",
+          "match": "\\+|\\-|\\*|/|%"
+        },
+        {
+          "name": "keyword.operator.shift.logic",
+          "match": "<<|>>"
+        },
+        {
+          "name": "keyword.operator.bitwise.logic",
+          "match": "&|\\||\\^|~"
+        },
+        {
+          "name": "keyword.operator.logical.logic",
+          "match": "&&|\\|\\||!|==|!=|<|>|<=|>="
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.logic",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [
+            {
+              "name": "constant.character.escape.logic",
+              "match": "\\\\."
+            }
+          ]
+        }
+      ]
+    },
+    "identifiers": {
+      "patterns": [
+        {
+          "name": "variable.other.logic",
+          "match": "\\b[a-zA-Z_][a-zA-Z0-9_]*\\b"
+        }
+      ]
+    },
+    "punctuation": {
+      "patterns": [
+        {
+          "name": "punctuation.logic",
+          "match": "[{}()\\[\\];:,.]"
+        },
+        {
+          "name": "storage.modifier.logic",
+          "match": "\\?|->"
+        }
+      ]
+    }
+  }
+}

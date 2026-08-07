@@ -1,172 +1,24 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any, Final, Literal, NoReturn, TypeAlias
-
-AstNode: TypeAlias = dict[str, Any]
-SymbolTable: TypeAlias = dict[str, 'ResolvedType']
-SignalTable: TypeAlias = dict[str, 'Signal']
-TypeLength: TypeAlias = int | str | None
-GatePrefix: TypeAlias = Literal['', 'IN', 'OUT']
-
-_MISSING: Final = object()
-_BUILTIN_GATES: Final = frozenset({'Xor', 'And', 'Or', 'Nor', 'XNor', 'Nand'})
-_BUILTIN_TYPES: Final = frozenset({'bit', 'bool', 'dynamic'})
-_IR_GATES: Final = {
-    'And': 'AND',
-    'Nand': 'NAND',
-    'Nor': 'NOR',
-    'Or': 'OR',
-    'XNor': 'XNOR',
-    'Xor': 'XOR',
-}
-_BINARY_GATES: Final = {
-    '&': 'AND',
-    '&&': 'AND',
-    '|': 'OR',
-    '||': 'OR',
-    '^': 'XOR',
-}
-
-@dataclass(frozen=True, slots=True)
-class ResolvedType:
-    """A compiler-resolved type, optionally carrying a length or type argument."""
-
-    name: str
-    length: TypeLength = None
-    arguments: tuple['ResolvedType', ...] = ()
-
-@dataclass(frozen=True, slots=True)
-class Signal:
-    """A scalar or vector signal represented by logical gate handles."""
-
-    bits: tuple[int, ...]
-    value_type: ResolvedType = ResolvedType('bit')
-    is_input: bool = False
-    is_input: bool = False
-    buffered: bool = False
-
-@dataclass(slots=True)
-class Gate:
-    """One positioned IR gate whose final ID is its rendered line number."""
-
-    type: str
-    inputs: list[int]
-    x: int
-    y: int
-    z: int
-    prefix: GatePrefix = ''
-    key: int = -1
-    value_type: str = 'bit'
-
-class SpatialAllocator:
-    """Own gate handles and calculate deterministic spatial IR positions."""
-
-    def __init__(self) -> None:
-        """Create an empty gate collection."""
-        self._gates: dict[int, Gate] = {}
-        self._next_key = 0
-
-    def create(
-        self,
-        gate_type: str,
-        inputs: list[int],
-        y: int,
-        z: int,
-        prefix: GatePrefix = '',
-        value_type: str = 'bit',
-    ) -> int:
-        """Allocate a gate and return its internal handle."""
-        key = self._next_key
-        self._next_key += 1
-        self._gates[key] = Gate(gate_type, list(inputs), 0, y, z, prefix, key, value_type)
-        return key
-
-    def inherit(self, key: int, gate_type: str, value_type: str | None = None) -> None:
-        """Retag an existing output gate and clear its inherited inputs."""
-        gate = self._get(key)
-        gate.type = gate_type
-        gate.inputs.clear()
-        if value_type is not None:
-            gate.value_type = value_type
-
-    def append_inputs(self, key: int, inputs: list[int]) -> None:
-        """Connect additional source gates to an existing gate."""
-        self._get(key).inputs.extend(inputs)
-
-    def mark_input(self, key: int) -> None:
-        """Mark an existing gate handle as an input boundary."""
-        self._get(key).prefix = 'IN'
-
-    def is_output(self, key: int) -> bool:
-        """Return whether a handle belongs to an output-prefixed gate."""
-        return self._get(key).prefix == 'OUT'
-
-    def build(self) -> list[Gate]:
-        """Calculate gate times and return gates in allocation order."""
-        times: dict[int, int] = {}
-        for key in self._gates:
-            self._time_for(key, times, set())
-
-        for key, gate in self._gates.items():
-            gate.x = times[key]
-
-        collision_z: dict[tuple[int, int], set[int]] = {}
-        for gate in self._gates.values():
-            key = (gate.x, gate.y)
-            used = collision_z.setdefault(key, set())
-            if gate.z in used:
-                new_z = 0
-                while new_z in used:
-                    new_z += 1
-                gate.z = new_z
-            used.add(gate.z)
-
-        return list(self._gates.values())
-
-    def _get(self, key: int) -> Gate:
-        """Return one allocated gate or raise for an invalid handle."""
-        try:
-            return self._gates[key]
-        except KeyError as error:
-            raise ValueError(f'Unknown gate handle: {key}') from error
-
-    def _time_for(
-        self,
-        key: int,
-        times: dict[int, int],
-        visiting: set[int],
-    ) -> int:
-        """Recursively calculate a gate's activation tick."""
-        if key in times:
-            return times[key]
-        if key in visiting:
-            raise ValueError('IR gates cannot contain a dependency cycle')
-
-        visiting.add(key)
-        gate = self._get(key)
-        if not gate.inputs:
-            time = 0
-        else:
-            source_time = max(self._time_for(source, times, visiting) for source in gate.inputs)
-            time = source_time if gate.prefix == 'IN' else source_time + 1
-        visiting.remove(key)
-        times[key] = time
-        return time
+from typing import Any, NoReturn
+from .types import *
+from .spatial_allocator import SpatialAllocator
 
 class ScrapCompiler:
     """Resolve Scrap types and lower module instances to positioned gate IR."""
 
-    def __init__(self, ast: AstNode) -> None:
+    def __init__(self, ast: AstNode, debug=False) -> None:
         """Initialize the compiler with a parsed AST."""
         self.ast = ast
         self.modules: dict[str, AstNode] = {}
         self.variables: SymbolTable = {}
         self.signals: SignalTable = {}
         self.module_types: dict[str, ResolvedType] = {}
+        self.debug = debug
+
         self._module_asts: dict[str, AstNode] = {}
-        self._allocator = SpatialAllocator()
-        self._next_z = 0
+        self._allocator:SpatialAllocator = SpatialAllocator()
+        self._literal_widths: dict[str, int] = {}
 
     def error(self, name: str, text: str, node: AstNode | None = None) -> NoReturn:
         """Print a compiler error with optional parser-provided source context."""
@@ -187,11 +39,11 @@ class ScrapCompiler:
         value: T,
         name: str,
         message: str,
-        expected: object = _MISSING,
+        expected: object = MISSING,
         node: AstNode | None = None,
     ) -> T:
         """Return a validated value or report a compiler error."""
-        valid = bool(value) if expected is _MISSING else value == expected
+        valid = bool(value) if expected is MISSING else value == expected
         if not valid:
             self.error(name, message, node)
         return value
@@ -204,7 +56,7 @@ class ScrapCompiler:
         node: AstNode | None = None,
     ) -> ResolvedType:
         """Resolve a declared type name and optional length expression."""
-        if name in _BUILTIN_TYPES or self._is_integer_type_name(name):
+        if name in BUILTIN_TYPES or self._is_integer_type_name(name):
             resolved = ResolvedType(name)
 
         elif name in self.module_types:
@@ -246,8 +98,10 @@ class ScrapCompiler:
     def resolve_expression(self, expression: AstNode, symbols: SymbolTable) -> ResolvedType:
         """Resolve the type of an expression within a symbol scope."""
         expression_type = expression.get('type')
+        if expression_type == 'cast':
+            return self._resolve_cast(expression, symbols)
         if expression_type == 'int':
-            return ResolvedType('int')
+            return ResolvedType('dynamic')
         if expression_type == 'bool':
             return ResolvedType('bool')
         if expression_type == 'ident':
@@ -258,6 +112,8 @@ class ScrapCompiler:
             return self._resolve_field(expression, symbols)
         if expression_type == 'call':
             return self._resolve_call(expression, symbols)
+        if expression_type == 'cast':
+            return self._resolve_cast(expression, symbols)
         if expression_type == 'new':
             return self._resolve_new(expression, symbols)
         if expression_type == 'unary':
@@ -298,13 +154,16 @@ class ScrapCompiler:
     def compile(self) -> list[Gate]:
         """Resolve the AST and lower all top-level statements into IR gates."""
         modules = self.ast.get('modules')
+
         if not isinstance(modules, dict):
             self.error('InvalidAst', "Missing or invalid 'modules'", self.ast)
+
         self._module_asts = modules
         self.compile_modules(modules)
         self.variables = self._resolve_statements(self.ast.get('gates'), {}, self.ast)
 
-        self._allocator = SpatialAllocator()
+        self._allocator = SpatialAllocator(compact=not self.debug)
+
         self._next_z = 0
         self.signals = self._lower_statements(
             self.ast.get('gates'),
@@ -314,28 +173,71 @@ class ScrapCompiler:
             {},
             False,
             False,
+            True,
         )
         return self._allocator.build()
 
     @staticmethod
     def gates_to_ir(gates: list[Gate]) -> str:
-        """Render positioned gates using explicit IDs and trailing type comments."""
-        ordered = [
-            *[gate for gate in gates if gate.prefix == 'IN'],
-            *[gate for gate in gates if gate.prefix == ''],
-            *[gate for gate in gates if gate.prefix == 'OUT'],
-        ]
-        line_ids = {gate.key: line for line, gate in enumerate(ordered, start=1)}
+        """Render positioned gates using explicit IDs and inline type/variable comments."""
+        in_gates = sorted([gate for gate in gates if gate.prefix == 'IN'], key=lambda g: (g.x, g.y, g.z))
+        internal_gates = sorted([gate for gate in gates if gate.prefix == ''], key=lambda g: (g.x, g.y, g.z))
+        out_gates = sorted([gate for gate in gates if gate.prefix == 'OUT'], key=lambda g: (g.x, g.y, g.z))
+
+        ordered = ["\n# Input", *in_gates, "\n# Compute", *internal_gates, "\n# Output", *out_gates]
+
+        line_ids = {gate if isinstance(gate,str) else gate.key: line for line, gate in enumerate(ordered, start=1)}
+
+        variable_all_ids: dict[str, list[int]] = {}
+        variable_in_ids: dict[str, list[int]] = {}
+        for gate in ordered:
+            if isinstance(gate, str):
+                continue
+
+            if gate.variable and gate.prefix in ('IN', 'OUT'):
+                variable_all_ids.setdefault(gate.variable, []).append(gate.key)
+            if gate.variable and gate.prefix == 'IN':
+                variable_in_ids.setdefault(gate.variable, []).append(gate.key)
+
+        unnamed_in_ids: list[int] = []
+        for gate in ordered:
+            if isinstance(gate, str):
+                continue
+
+            if gate.prefix == 'IN' and not gate.variable:
+                unnamed_in_ids.append(gate.key)
+
         lines: list[str] = []
-        type_groups: dict[str, list[int]] = {}
+        seen_variables: set[str] = set()
+        emitted_variable_types: set[str] = set()
+        emitted_unnamed_type = False
 
         for gate in ordered:
-            try:
-                inputs = [str(line_ids[source]) for source in gate.inputs]
-            except KeyError as error:
-                raise ValueError(f'Unknown source gate handle: {error.args[0]}') from error
+            if isinstance(gate, str):
+                lines.append(gate)
+                continue
 
-            line_id = line_ids[gate.key]
+            line_id = gate.key
+
+            if gate.prefix == 'IN' and gate.variable and gate.variable not in emitted_variable_types:
+                in_ids = variable_in_ids.get(gate.variable, [])
+                type_name = gate.value_type
+                lines.append(f"# {ScrapCompiler._format_id_ranges(in_ids)}: {type_name}")
+                emitted_variable_types.add(gate.variable)
+
+            if gate.prefix == 'IN' and not gate.variable and not emitted_unnamed_type and unnamed_in_ids:
+                type_name = gate.value_type
+                lines.append(f"# {ScrapCompiler._format_id_ranges(unnamed_in_ids)}: {type_name}")
+                emitted_unnamed_type = True
+
+            if gate.variable and gate.variable not in seen_variables:
+                ids = variable_all_ids.get(gate.variable, [])
+                if ids:
+                    lines.append(f"# {gate.variable}: {ScrapCompiler._format_id_ranges(ids)}")
+                    seen_variables.add(gate.variable)
+
+            inputs = [str(source) for source in gate.inputs]
+
             parts = ([gate.prefix] if gate.prefix else []) + [
                 str(gate.x),
                 str(gate.y),
@@ -343,11 +245,9 @@ class ScrapCompiler:
                 gate.type,
                 *inputs,
             ]
+            if gate.type == 'SWITCH' and gate.default_state:
+                parts.append(str(gate.default_state))
             lines.append(f"{line_id}: {' '.join(parts)}")
-            type_groups.setdefault(gate.value_type, []).append(line_id)
-
-        for value_type, ids in sorted(type_groups.items()):
-            lines.append(f"# {ScrapCompiler._format_id_ranges(ids)}: {value_type}")
 
         return '\n'.join(lines)
 
@@ -445,23 +345,31 @@ class ScrapCompiler:
                 statement,
             )
         symbols[name] = current_type or value_type
+        if value.get('type') == 'int' and isinstance(value.get('value'), int):
+            self._literal_widths[name] = max(value['value'].bit_length(), 1)
 
     def _resolve_arrow(self, statement: AstNode, symbols: SymbolTable) -> None:
         """Resolve a wire statement and validate every source against its target."""
         target = statement.get('to')
         sources = statement.get('from')
+
         if not isinstance(target, str) or not target:
             self.error('InvalidGate', 'Wire statement is missing a target', statement)
+
         if not isinstance(sources, list):
             self.error('InvalidGate', 'Wire statement is missing sources', statement)
+
         target_type = symbols.get(target)
+
         if target_type is None:
             self.error('UnknownIdentifierError', f"Unknown wire target: {target}", statement)
 
         for source in sources:
             if not isinstance(source, dict):
                 self.error('InvalidGate', 'Wire source must be an expression', statement)
+
             source_type = self.resolve_expression(source, symbols)
+
             if not self._is_assignable(target_type, source_type):
                 self.error(
                     'TypeMismatchError',
@@ -475,33 +383,49 @@ class ScrapCompiler:
         arguments = statement.get('args')
         variable = statement.get('var')
         gates = statement.get('gates')
+
         if name != 'dynamic' or not isinstance(arguments, list) or len(arguments) != 1:
             self.error('InvalidGate', 'Invalid dynamic loop', statement)
+
         if not isinstance(variable, str) or not variable:
             self.error('InvalidGate', 'Dynamic loop is missing its index variable', statement)
+
         if not isinstance(gates, list):
             self.error('InvalidGate', 'Dynamic loop is missing its body', statement)
 
         source = arguments[0]
+
         if not isinstance(source, dict):
             self.error('InvalidGate', 'Dynamic loop argument must be an expression', statement)
+
         source_type = self.resolve_expression(source, symbols)
+
         if source_type.name != 'dynamic':
             self.error('TypeMismatchError', 'Dynamic loops require a dynamic signal', source)
+
         self._resolve_statements(gates, {**symbols, variable: ResolvedType('int')}, statement)
 
     def _resolve_identifier(self, expression: AstNode, symbols: SymbolTable | dict[str, Any]) -> ResolvedType:
         """Resolve an identifier expression from the active symbol table."""
         name = expression.get('name')
+
         if not isinstance(name, str) or not name:
             self.error('InvalidExpressionError', 'Identifier expression is missing a name', expression)
+
         resolved = symbols.get(name)
+
+        if resolved is None and name in self.module_types:
+            return self.module_types[name]
+
         if resolved is None:
             self.error('UnknownIdentifierError', f"Unknown identifier: {name}", expression)
+
         if isinstance(resolved, Signal):
             return resolved.value_type
+
         if isinstance(resolved, ResolvedType):
             return resolved
+
         self.error('InvalidExpressionError', f"Invalid symbol table entry for {name}", expression)
 
     def _resolve_index(self, expression: AstNode, symbols: SymbolTable) -> ResolvedType:
@@ -556,6 +480,25 @@ class ScrapCompiler:
 
             self.error('UnknownIdentifierError', f"Unknown module output: {name}", expression)
 
+        if value.get('type') == 'ident':
+            ident_name = value.get('name')
+            if isinstance(ident_name, str) and ident_name in symbols:
+                resolved = symbols[ident_name]
+                if isinstance(resolved, ResolvedType) and resolved.name in self._module_asts:
+                    module = self._module_asts[resolved.name]
+                    fields = module.get('fields')
+                    if isinstance(fields, dict):
+                        output_defs = fields.get('outputs')
+                        if isinstance(output_defs, list):
+                            for definition in output_defs:
+                                if isinstance(definition, dict) and self._definition_name(definition) == name:
+                                    length = definition.get('len')
+                                    if length is None:
+                                        return ResolvedType('dynamic')
+                                    if length.get('type') == 'ident':
+                                        return ResolvedType('dynamic', length.get('name'))
+                                    return ResolvedType('dynamic', self._evaluate_integer(length, {}))
+
         self.error('TypeMismatchError', 'Field selection is only supported on module call results', expression)
 
     def _resolve_call(self, expression: AstNode, symbols: SymbolTable) -> ResolvedType:
@@ -566,6 +509,9 @@ class ScrapCompiler:
             self.error('InvalidExpressionError', 'Call expression is missing a name', expression)
         if not isinstance(arguments, list):
             self.error('InvalidExpressionError', 'Call expression is missing arguments', expression)
+
+        if name in BUILTIN_MODULES:
+            return self._resolve_builtin_module_type(expression)
 
         argument_types: list[ResolvedType] = []
         for argument in arguments:
@@ -581,15 +527,18 @@ class ScrapCompiler:
         cast_type = expression.get('cast_type')
         if cast_type is not None and not isinstance(cast_type, str):
             self.error('InvalidExpressionError', 'Call type argument must be a name', expression)
-        if name in _BUILTIN_GATES:
+
+        if name in BUILTIN_GATES:
             for argument_type in argument_types:
                 if argument_type.name != 'bit':
                     self.error('TypeMismatchError', f"{name} accepts only bit inputs", expression)
             return ResolvedType('bit')
+
         if name == 'dynamic':
             if len(argument_types) != 1 or argument_types[0].name != 'dynamic':
                 self.error('TypeMismatchError', 'dynamic requires one dynamic signal', expression)
             return argument_types[0]
+
         if name not in self.module_types:
             self.error('UnknownTypeError', f"Unknown callable type: {name}", expression)
 
@@ -597,6 +546,38 @@ class ScrapCompiler:
         if cast_type is not None:
             type_arguments = (self.resolve_type(cast_type, node=expression),)
         return ResolvedType(name, arguments=type_arguments)
+
+    def _resolve_builtin_module_type(self, expression: AstNode) -> ResolvedType:
+        """Return the output type for a built-in module without resolving width args."""
+        name = expression.get('name')
+        arguments = expression.get('args')
+        if name == 'IntInput' or name == 'IntDisplay':
+            if isinstance(arguments, list) and len(arguments) > 0:
+                width_arg = arguments[0]
+                if isinstance(width_arg, dict) and width_arg.get('type') == 'int':
+                    value = width_arg.get('value')
+                    if isinstance(value, int):
+                        return ResolvedType(f'u{value}')
+                if isinstance(width_arg, dict) and width_arg.get('type') == 'ident':
+                    ident_name = width_arg.get('name')
+                    if isinstance(ident_name, str) and ident_name.startswith('u') and ident_name[1:].isdigit():
+                        return ResolvedType(ident_name)
+            return ResolvedType('bit')
+        if name == 'Lamp' or name == 'Switch' or name == 'Button':
+            return ResolvedType('bit')
+        return ResolvedType('bit')
+
+    def _resolve_cast(self, expression: AstNode, symbols: SymbolTable) -> ResolvedType:
+        """Resolve a type cast expression."""
+        cast_type = expression.get('cast_type')
+        value = expression.get('value')
+        if not isinstance(cast_type, str) or not isinstance(value, dict):
+            self.error('InvalidExpressionError', 'Invalid cast expression', expression)
+        resolved = self.resolve_type(cast_type, node=expression)
+        width = self._get_integer_width(cast_type)
+        if width is not None:
+            return ResolvedType(resolved.name, width, resolved.arguments)
+        return resolved
 
     def _resolve_new(self, expression: AstNode, symbols: SymbolTable) -> ResolvedType:
         """Resolve an allocation expression to its constructed value type."""
@@ -658,6 +639,7 @@ class ScrapCompiler:
         output_ports: SignalTable,
         in_dynamic_loop: bool,
         final_iteration: bool,
+        top_level: bool = False,
     ) -> SignalTable:
         """Lower statement AST nodes and return their resulting signal bindings."""
         if not isinstance(statements, list):
@@ -677,6 +659,7 @@ class ScrapCompiler:
                     output_ports,
                     in_dynamic_loop,
                     final_iteration,
+                    top_level,
                 )
             elif statement_type == 'arrow':
                 self._lower_arrow(statement, lowered, indices, z)
@@ -700,6 +683,7 @@ class ScrapCompiler:
         output_ports: SignalTable,
         in_dynamic_loop: bool,
         final_iteration: bool,
+        top_level: bool = False,
     ) -> None:
         """Lower a gate declaration or rebind an alias signal."""
         name = statement.get('name')
@@ -715,8 +699,15 @@ class ScrapCompiler:
 
         if value.get('type') == 'new':
             signals[name] = self._lower_new(value, signals, indices, z, target, statement)
-            return
-        signals[name] = self._lower_expression(value, signals, indices, z, None)
+        else:
+            signals[name] = self._lower_expression(value, signals, indices, z, None)
+
+        for gate_id in signals[name].bits:
+            self._allocator.set_variable(gate_id, name)
+
+        if top_level and name == 'out':
+            for gate_id in signals[name].bits:
+                self._allocator._gates[gate_id].prefix = 'OUT'
 
     def _lower_expression(
         self,
@@ -732,13 +723,13 @@ class ScrapCompiler:
             value = expression.get('value')
             if not isinstance(value, bool):
                 self.error('InvalidExpressionError', 'Invalid boolean expression', expression)
-            return self._constant_signal(int(value), width or 1, z, ResolvedType('bool'))
+            return self._constant_signal(int(value), width or 1, ResolvedType('bool'))
         if expression_type == 'int':
             value = expression.get('value')
             if not isinstance(value, int):
                 self.error('InvalidExpressionError', 'Invalid integer expression', expression)
             actual_width = width or max(value.bit_length(), 1)
-            return self._constant_signal(value, actual_width, z, ResolvedType(f'u{actual_width}'))
+            return self._constant_signal(value, actual_width, ResolvedType('dynamic'))
         if expression_type == 'ident':
             name = expression.get('name')
             if not isinstance(name, str) or name not in signals:
@@ -748,6 +739,8 @@ class ScrapCompiler:
             return self._lower_index(expression, signals, indices, z)
         if expression_type == 'field':
             return self._lower_field(expression, signals, indices, z, width)
+        if expression_type == 'cast':
+            return self._lower_cast(expression, signals, indices, z, width)
         if expression_type == 'call':
             return self._lower_call(expression, signals, indices, z, width)
         if expression_type == 'new':
@@ -765,7 +758,7 @@ class ScrapCompiler:
         indices: dict[str, int],
         z: int,
     ) -> None:
-        """Append all wire sources to the gate or gates bound by a target name."""
+        """Append wire sources to the target, supporting concatenation and width extension."""
         target_name = statement.get('to')
         sources = statement.get('from')
         if not isinstance(target_name, str) or not isinstance(sources, list):
@@ -782,11 +775,37 @@ class ScrapCompiler:
         if len(source_signals) != len(sources):
             self.error('InvalidGate', 'Wire source must be an expression', statement)
 
+        target_width = len(target.bits)
+
+        if target_width == 1:
+            for gate in target.bits:
+                inputs: list[int] = []
+                for source in source_signals:
+                    inputs.extend(self._expand_for_width(source, 1, 0, statement))
+                self._allocator.append_inputs(gate, inputs)
+            return
+
+        concatenated_bits: list[int] = []
+        for source in reversed(source_signals):
+            if len(source.bits) == 1:
+                concatenated_bits.append(source.bits[0])
+            else:
+                concatenated_bits.extend(source.bits)
+
+        source_width = len(concatenated_bits)
+
+        if source_width > target_width:
+            self.error(
+                'TypeMismatchError',
+                f"Cannot connect {source_width} bits to a {target_width}-bit value",
+                statement,
+            )
+
         for target_index, gate in enumerate(target.bits):
-            inputs: list[int] = []
-            for source in source_signals:
-                inputs.extend(self._expand_for_width(source, len(target.bits), target_index, statement))
-            self._allocator.append_inputs(gate, inputs)
+            if source_width == 1:
+                self._allocator.append_inputs(gate, [concatenated_bits[0]])
+            elif target_index < source_width:
+                self._allocator.append_inputs(gate, [concatenated_bits[target_index]])
 
     def _lower_dynamic(
         self,
@@ -818,6 +837,7 @@ class ScrapCompiler:
                 **signals,
                 variable: Signal((0,), value_type=ResolvedType('int')),
             }
+            start_key = self._allocator._next_key
             updated = self._lower_statements(
                 gates,
                 loop_signals,
@@ -826,7 +846,12 @@ class ScrapCompiler:
                 output_ports,
                 True,
                 index == len(dynamic_signal.bits) - 1,
+                False,
             )
+            for signal in updated.values():
+                for bit in signal.bits:
+                    if bit in self._allocator._gates and bit >= start_key:
+                        self._allocator._gates[bit].y = index
             signals.update(updated)
 
     def _lower_new(
@@ -854,7 +879,7 @@ class ScrapCompiler:
         if not isinstance(name, str) or not isinstance(arguments, list):
             self.error('InvalidExpressionError', 'new requires a valid call expression', value)
 
-        if name in _IR_GATES:
+        if name in IR_GATES:
             argument_signals = [
                 self._lower_expression(argument, signals, indices, z, None)
                 for argument in arguments
@@ -873,7 +898,7 @@ class ScrapCompiler:
                 ]
                 formatted_value_type = self._format_type(value_type)
                 for gate in inherited.bits:
-                    self._allocator.inherit(gate, _IR_GATES[name], value_type=formatted_value_type)
+                    self._allocator.inherit(gate, IR_GATES[name], value_type=formatted_value_type)
                 for target_index, gate in enumerate(inherited.bits):
                     inputs: list[int] = []
                     for source in argument_signals:
@@ -889,8 +914,11 @@ class ScrapCompiler:
                 inputs: list[int] = []
                 for source in argument_signals:
                     inputs.extend(self._expand_for_width(source, width, index, node))
-                gate_bits.append(self._allocator.create(_IR_GATES[name], inputs, index, z, prefix, value_type=formatted_value_type))
+                gate_bits.append(self._allocator.create(IR_GATES[name], inputs, index, prefix, value_type=formatted_value_type))
             return Signal(tuple(gate_bits), value_type=value_type)
+
+        if name in BUILTIN_MODULES:
+            return self._instantiate_module(value, signals, indices, z)
 
         if name in self._module_asts:
             return self._instantiate_module(value, signals, indices, z)
@@ -932,6 +960,14 @@ class ScrapCompiler:
             self.error('InvalidExpressionError', 'Field selection is missing a name', expression)
         if value.get('type') == 'call' and isinstance(value.get('name'), str) and value.get('name') in self._module_asts:
             return self._instantiate_module(value, signals, indices, z, selected_output=name)
+
+        if value.get('type') == 'ident':
+            ident_name = value.get('name')
+            if isinstance(ident_name, str) and ident_name in signals:
+                signal = signals[ident_name]
+                if signal.module_outputs is not None and name in signal.module_outputs:
+                    return signal.module_outputs[name]
+
         self.error('TypeMismatchError', 'Field selection is only supported on module call results', expression)
 
     def _lower_call(
@@ -946,7 +982,7 @@ class ScrapCompiler:
         name = expression.get('name')
         if not isinstance(name, str):
             self.error('InvalidExpressionError', 'Call expression is missing a name', expression)
-        if name in _IR_GATES:
+        if name in IR_GATES:
             return self._lower_builtin_call(expression, signals, indices, z, width)
         if name in self._module_asts:
             return self._instantiate_module(expression, signals, indices, z)
@@ -981,7 +1017,7 @@ class ScrapCompiler:
             inputs: list[int] = []
             for source in sources:
                 inputs.extend(self._expand_for_width(source, signal_width, index, expression))
-            bits.append(self._allocator.create(_IR_GATES[name], inputs, index, z, prefix, value_type=formatted_value_type))
+            bits.append(self._allocator.create(IR_GATES[name], inputs, index, prefix, value_type=formatted_value_type))
         return Signal(tuple(bits), value_type=resolved_type)
 
     def _instantiate_module(
@@ -996,6 +1032,18 @@ class ScrapCompiler:
         name = expression.get('name')
         if not isinstance(name, str):
             self.error('InvalidExpressionError', 'Module call is missing a name', expression)
+
+        if name == 'IntInput':
+            return self._instantiate_int_input(expression, parent_signals, parent_indices, parent_z)
+        if name == 'IntDisplay':
+            return self._instantiate_int_display(expression, parent_signals, parent_indices, parent_z)
+        if name == 'Lamp':
+            return self._instantiate_lamp(expression, parent_signals, parent_indices, parent_z)
+        if name == 'Switch':
+            return self._instantiate_switch(expression, parent_signals, parent_indices, parent_z)
+        if name == 'Button':
+            return self._instantiate_button(expression, parent_signals, parent_indices, parent_z)
+
         module = self._module_asts[name]
         fields = module.get('fields')
         if not isinstance(fields, dict):
@@ -1006,10 +1054,8 @@ class ScrapCompiler:
         if not isinstance(input_defs, list) or not isinstance(output_defs, list) or not isinstance(gates, list):
             self.error('InvalidModule', f"Invalid module {name} fields", module)
 
-        instance_z = self._next_z
-        self._next_z += 1
-        generic_width = self._generic_width(expression, input_defs, output_defs)
         positional, named = self._bind_call_arguments(expression, input_defs)
+        generic_width = self._generic_width(expression, input_defs, output_defs, parent_signals, positional, named)
         signals: SignalTable = {}
         output_ports: SignalTable = {}
 
@@ -1026,18 +1072,18 @@ class ScrapCompiler:
             if argument is None:
                 if not definition.get('optional', False):
                     self.error('MissingArgumentError', f"Missing module input: {field_name}", expression)
-                source = self._constant_signal(0, field_width, instance_z, input_type)
+                source = self._constant_signal(0, field_width, input_type)
                 mark_input = False
             else:
                 source = self._lower_expression(
                     argument,
                     parent_signals,
                     parent_indices,
-                    parent_z,
+                    0,
                     field_width,
                 )
                 mark_input = not buffered
-            signals[field_name] = self._input_ports(source, instance_z, buffered, mark_input)
+            signals[field_name] = self._input_ports(source, buffered, mark_input, input_type, field_name)
 
         for definition in output_defs:
             if not isinstance(definition, dict):
@@ -1045,7 +1091,7 @@ class ScrapCompiler:
             field_name = self._definition_name(definition)
             output_type = self._resolve_definition_type(definition, signals, parent_indices, generic_width)
             field_width = self._field_width(definition, signals, parent_indices, generic_width)
-            port = self._output_ports(field_width, instance_z, output_type)
+            port = self._output_ports(field_width, output_type)
             signals[field_name] = port
             output_ports[field_name] = port
 
@@ -1053,8 +1099,9 @@ class ScrapCompiler:
             gates,
             signals,
             {},
-            instance_z,
+            0,
             output_ports,
+            False,
             False,
             False,
         )
@@ -1065,32 +1112,49 @@ class ScrapCompiler:
         if selected_output is not None:
             if selected_output not in output_ports:
                 self.error('UnknownIdentifierError', f"Unknown module output: {selected_output}", expression)
-            return output_ports[selected_output]
-        return primary
+            result = output_ports[selected_output]
+        else:
+            result = primary
 
-    def _input_ports(self, source: Signal, z: int, buffered: bool, mark_input: bool) -> Signal:
+        return Signal(
+            bits=result.bits,
+            value_type=result.value_type,
+            is_input=result.is_input,
+            buffered=result.buffered,
+            module_outputs=dict(output_ports),
+        )
+
+    def _input_ports(self, source: Signal, buffered: bool, mark_input: bool, value_type: ResolvedType | None = None, variable: str = '') -> Signal:
         """Bind a module input to the instantiated module scope.
 
         Buffered inputs get an IN-prefixed OR gate buffer. Unbuffered inputs
         are carried through and tagged for the first consuming gate.
         """
+        value_type = value_type or source.value_type
         if buffered:
-            formatted_value_type = self._format_type(source.value_type)
+            formatted_value_type = self._format_type(value_type)
             bits = [
-                self._allocator.create('OR', [gate], index, z, 'IN', value_type=formatted_value_type)
+                self._allocator.create('OR', [gate], index, 'IN', value_type=formatted_value_type)
                 for index, gate in enumerate(source.bits)
             ]
-            return Signal(tuple(bits), value_type=source.value_type)
+            if variable:
+                for bit in bits:
+                    self._allocator.set_variable(bit, variable)
+            return Signal(tuple(bits), value_type=value_type)
 
+        if variable:
+            for bit in source.bits:
+                if not self._allocator._gates[bit].variable:
+                    self._allocator.set_variable(bit, variable)
         if mark_input:
-            return Signal(source.bits, source.value_type, is_input=True)
-        return source
+            return Signal(source.bits, value_type, is_input=True)
+        return Signal(source.bits, value_type)
 
-    def _output_ports(self, width: int, z: int, value_type: ResolvedType) -> Signal:
-        """Create default OUT OR gates that can later inherit another gate type."""
+    def _output_ports(self, width: int, value_type: ResolvedType) -> Signal:
+        """Create default output OR gates that can later inherit another gate type."""
         formatted_value_type = self._format_type(value_type)
         bits = [
-            self._allocator.create('OR', [], index, z, 'OUT', value_type=formatted_value_type)
+            self._allocator.create('OR', [], index, '', value_type=formatted_value_type, is_output_port=True)
             for index in range(width)
         ]
         return Signal(tuple(bits), value_type=value_type)
@@ -1107,11 +1171,14 @@ class ScrapCompiler:
             if isinstance(definition, dict) and definition.get('type') == 'dynamic':
                 name = self._definition_name(definition)
                 output = output_ports[name]
+
                 if len(output.bits) == generic_width:
                     return output
+
         for definition in definitions:
             if isinstance(definition, dict):
                 return output_ports[self._definition_name(definition)]
+
         self.error('InvalidModule', 'Module has no outputs', node)
 
     def _bind_call_arguments(
@@ -1154,6 +1221,9 @@ class ScrapCompiler:
         expression: AstNode,
         input_defs: list[object],
         output_defs: list[object],
+        parent_signals: SignalTable | None = None,
+        positional: list[AstNode] | None = None,
+        named: dict[str, AstNode] | None = None,
     ) -> int:
         """Resolve a module call's ``<uN>`` dynamic signal width."""
         needs_width = any(
@@ -1163,16 +1233,68 @@ class ScrapCompiler:
         cast_type = expression.get('cast_type')
         if cast_type is None and not needs_width:
             return 1
-        if not isinstance(cast_type, str):
+        if isinstance(cast_type, str):
+            if cast_type == 'bit':
+                return 1
+            if not self._is_integer_type_name(cast_type) or cast_type[0] != 'u':
+                self.error('TypeArgumentError', 'Dynamic modules require an unsigned integer type', expression)
+            width = int(cast_type[1:])
+            if width <= 0:
+                self.error('TypeArgumentError', 'Dynamic module width must be positive', expression)
+            return width
+        if cast_type is not None:
             self.error('TypeArgumentError', 'Dynamic modules require a <uN> type argument', expression)
-        if cast_type == 'bit':
-            return 1
-        if not self._is_integer_type_name(cast_type) or cast_type[0] != 'u':
-            self.error('TypeArgumentError', 'Dynamic modules require an unsigned integer type', expression)
-        width = int(cast_type[1:])
-        if width <= 0:
-            self.error('TypeArgumentError', 'Dynamic module width must be positive', expression)
-        return width
+
+        if positional is None or named is None:
+            arguments = expression.get('args')
+            if not isinstance(arguments, list):
+                self.error('TypeArgumentError', 'Dynamic modules require a <uN> type argument', expression)
+            positional = []
+            named = {}
+            for argument in arguments:
+                if isinstance(argument, dict):
+                    if argument.get('type') == 'named_arg':
+                        arg_name = argument.get('name')
+                        arg_value = argument.get('value')
+                        if isinstance(arg_name, str) and isinstance(arg_value, dict):
+                            named[arg_name] = arg_value
+                    else:
+                        positional.append(argument)
+
+        for position, definition in enumerate(input_defs):
+            if not isinstance(definition, dict):
+                continue
+            field_name = self._definition_name(definition)
+            type_name = definition.get('type')
+            length = definition.get('len')
+            if type_name == 'dynamic' and length is None:
+                argument = named.get(field_name)
+                if argument is None and position < len(positional):
+                    argument = positional[position]
+                if argument is not None:
+                    inferred = self._infer_expression_width(argument, parent_signals)
+                    if inferred is not None:
+                        return inferred
+
+        self.error('TypeArgumentError', 'Dynamic modules require a <uN> type argument', expression)
+
+    def _infer_expression_width(self, expression: AstNode, signals: SignalTable | None) -> int | None:
+        """Attempt to infer the bit width of an expression from known signals."""
+        expression_type = expression.get('type')
+        if expression_type == 'int':
+            value = expression.get('value')
+            if isinstance(value, int):
+                return max(value.bit_length(), 1)
+            return None
+        if expression_type == 'ident':
+            name = expression.get('name')
+            if isinstance(name, str):
+                if signals is not None and name in signals:
+                    return len(signals[name].bits)
+                if name in self._literal_widths:
+                    return self._literal_widths[name]
+            return None
+        return None
 
     def _field_width(
         self,
@@ -1241,11 +1363,31 @@ class ScrapCompiler:
         """Find an output signal that a ``new`` expression can retag in place."""
         if len(arguments) == 1:
             candidate = arguments[0]
-            if candidate.bits and all(self._allocator.is_output(gate) for gate in candidate.bits):
+            if candidate.bits and all(self._allocator.is_output_port(gate) for gate in candidate.bits):
                 return candidate
-        if target is not None and all(self._allocator.is_output(gate) for gate in target.bits):
+        if target is not None and all(self._allocator.is_output_port(gate) for gate in target.bits):
             return target
         return None
+
+    def _lower_cast(
+        self,
+        expression: AstNode,
+        signals: SignalTable,
+        indices: dict[str, int],
+        z: int,
+        width: int | None,
+    ) -> Signal:
+        """Lower a type cast by re-resolving the target width and lowering the value."""
+        cast_type = expression.get('cast_type')
+        value = expression.get('value')
+        if not isinstance(cast_type, str) or not isinstance(value, dict):
+            self.error('InvalidExpressionError', 'Invalid cast expression', expression)
+        resolved_type = self.resolve_type(cast_type, node=expression)
+        explicit_width = self._get_integer_width(cast_type)
+        target_width = explicit_width if explicit_width is not None else (resolved_type.length if isinstance(resolved_type.length, int) else width)
+        if target_width is None:
+            self.error('InvalidExpressionError', 'Cast requires a concrete width', expression)
+        return self._lower_expression(value, signals, indices, z, target_width)
 
     def _lower_unary(
         self,
@@ -1267,7 +1409,7 @@ class ScrapCompiler:
         formatted_value_type = self._format_type(resolved_type)
         prefix = 'IN' if source.is_input else ''
         return Signal(tuple(
-            self._allocator.create('NOT', [gate], index, z, prefix, value_type=formatted_value_type)
+            self._allocator.create('NOT', [gate], index, prefix, value_type=formatted_value_type)
             for index, gate in enumerate(source.bits)
         ), value_type=resolved_type)
 
@@ -1285,7 +1427,7 @@ class ScrapCompiler:
         right = expression.get('right')
         if not isinstance(operator, str) or not isinstance(left, dict) or not isinstance(right, dict):
             self.error('InvalidExpressionError', 'Invalid binary expression', expression)
-        gate_type = _BINARY_GATES.get(operator)
+        gate_type = BINARY_GATES.get(operator)
         if gate_type is None:
             self.error('UnsupportedExpressionError', f"Unsupported IR binary operator: {operator}", expression)
         left_signal = self._lower_expression(left, signals, indices, z, width)
@@ -1301,23 +1443,26 @@ class ScrapCompiler:
                 *self._expand_for_width(left_signal, signal_width, index, expression),
                 *self._expand_for_width(right_signal, signal_width, index, expression),
             ]
-            bits.append(self._allocator.create(gate_type, inputs, index, z, prefix, value_type=formatted_value_type))
+            bits.append(self._allocator.create(gate_type, inputs, index, prefix, value_type=formatted_value_type))
         return Signal(tuple(bits), value_type=resolved_type)
 
-    def _constant_signal(self, value: int, width: int, z: int, value_type: ResolvedType) -> Signal:
-        """Encode an integer constant as zero-input OR and NOT gates per bit."""
+    def _constant_signal(self, value: int, width: int, value_type: ResolvedType) -> Signal:
+        """Encode an integer constant as SWITCH gates per bit."""
         if width <= 0:
             self.error('ValueError', 'Signal width must be positive')
         if value >= 1 << width:
             self.error('ValueError', f"Value {value} does not fit in {width} bits")
+        if value_type.name == 'dynamic':
+            value_type = ResolvedType('dynamic', width)
         formatted_value_type = self._format_type(value_type)
         bits = [
             self._allocator.create(
-                'NOT' if value & (1 << index) else 'OR',
+                'SWITCH',
                 [],
                 index,
-                z,
+                'IN',
                 value_type=formatted_value_type,
+                default_state=(value >> index) & 1,
             )
             for index in range(width)
         ]
@@ -1327,11 +1472,30 @@ class ScrapCompiler:
         """Require a signal to match an expected width when one is supplied."""
         if width is None or len(signal.bits) == width:
             return signal
+        if len(signal.bits) < width and signal.value_type.name == 'dynamic':
+            return self._pad_width(signal, width)
         self.error(
             'TypeMismatchError',
             f"Expected a {width}-bit value, received {len(signal.bits)} bits",
             node,
         )
+
+    def _pad_width(self, signal: Signal, target_width: int) -> Signal:
+        """Zero-pad a dynamic signal to a target width."""
+        if len(signal.bits) >= target_width:
+            return signal
+        padding_count = target_width - len(signal.bits)
+        padding = self._constant_signal(0, padding_count, ResolvedType('dynamic', target_width))
+        all_bits = tuple([*signal.bits, *padding.bits])
+        for bit in all_bits:
+            if bit in self._allocator._gates:
+                self._allocator._gates[bit].value_type = f'u{target_width}'
+        if signal.bits and padding.bits:
+            first_var = self._allocator._gates[signal.bits[0]].variable
+            for bit in padding.bits:
+                if bit in self._allocator._gates:
+                    self._allocator._gates[bit].variable = first_var
+        return Signal(all_bits, value_type=ResolvedType('dynamic', target_width))
 
     def _expand_for_width(
         self,
@@ -1433,13 +1597,24 @@ class ScrapCompiler:
         """Return whether a type name denotes a signed or unsigned integer."""
         return len(name) > 1 and name[0] in {'i', 'u'} and name[1:].isdigit()
 
+    @staticmethod
+    def _get_integer_width(name: str) -> int | None:
+        """Return the bit width for integer type names like u8, i16, or None."""
+        if len(name) > 1 and name[0] in {'i', 'u'} and name[1:].isdigit():
+            return int(name[1:])
+        if name in {'bit', 'bool'}:
+            return 1
+        return None
+
     def _is_integer_type(self, value_type: ResolvedType) -> bool:
         """Return whether a resolved type is an integer type."""
-        return value_type.name == 'int' or self._is_integer_type_name(value_type.name)
+        return value_type.name in {'int', 'dynamic'} or self._is_integer_type_name(value_type.name)
 
     @staticmethod
     def _is_assignable(target: ResolvedType, source: ResolvedType) -> bool:
         """Return whether a source value can be assigned to a target type."""
+        if source.name == 'dynamic' or target.name == 'dynamic':
+            return True
         if target.name != source.name or target.arguments != source.arguments:
             return False
         return target.length is None or source.length is None or target.length == source.length
@@ -1457,10 +1632,95 @@ class ScrapCompiler:
     @staticmethod
     def _format_type(value_type: ResolvedType) -> str:
         """Format a resolved type for compiler diagnostics."""
+        if value_type.name == 'dynamic' and isinstance(value_type.length, int):
+            return f'u{value_type.length}'
         suffix = ''
         if value_type.arguments:
             suffix = '<' + ', '.join(argument.name for argument in value_type.arguments) + '>'
         if value_type.length is not None:
             suffix += f'[{value_type.length}]'
         return value_type.name + suffix
+
+    def _resolve_builtin_width(self, expression: AstNode, parent_signals: SignalTable) -> int | None:
+        """Resolve the width argument for built-in modules like IntInput. Returns None for dynamic."""
+        arguments = expression.get('args')
+        if not isinstance(arguments, list) or len(arguments) < 1:
+            return None
+
+        width_arg = arguments[0]
+        if isinstance(width_arg, dict) and width_arg.get('type') == 'int':
+            value = width_arg.get('value')
+            if isinstance(value, int) and value > 0:
+                return value
+
+        if isinstance(width_arg, dict) and width_arg.get('type') == 'ident':
+            name = width_arg.get('name')
+            if isinstance(name, str):
+                if name in parent_signals:
+                    signal = parent_signals[name]
+                    return len(signal.bits)
+                if name.startswith('u') and name[1:].isdigit():
+                    return int(name[1:])
+
+        self.error('InvalidExpressionError', 'Built-in module width must be a positive integer, unsigned type, or signal', expression)
+
+    def _instantiate_int_input(self, expression: AstNode, parent_signals: SignalTable, parent_indices: dict[str, int], parent_z: int) -> Signal:
+        """Create a block of SWITCH gates representing an integer input."""
+        width = self._resolve_builtin_width(expression, parent_signals)
+        bits = []
+        for index in range(width):
+            gate_id = self._allocator.create('SWITCH', [], index, 'IN', value_type=f'u{width}')
+            self._allocator.mark_input(gate_id)
+            bits.append(gate_id)
+        signal = Signal(tuple(bits), value_type=ResolvedType(f'u{width}'))
+        return Signal(bits=signal.bits, value_type=signal.value_type, module_outputs={'bits': signal})
+
+    def _instantiate_int_display(self, expression: AstNode, parent_signals: SignalTable, parent_indices: dict[str, int], parent_z: int) -> Signal:
+        """Create a block of LAMP gates representing an integer display."""
+        width = self._resolve_builtin_width(expression, parent_signals)
+        input_signal = None
+        arguments = expression.get('args')
+        if isinstance(arguments, list) and len(arguments) > 1:
+            input_signal = self._lower_expression(arguments[1], parent_signals, parent_indices, parent_z, width)
+
+        bits = []
+        for index in range(width):
+            inputs = []
+            if input_signal is not None:
+                inputs.append(input_signal.bits[index] if index < len(input_signal.bits) else input_signal.bits[0])
+            gate_id = self._allocator.create('LAMP', inputs, index, 'OUT', value_type=f'u{width}')
+            bits.append(gate_id)
+        signal = Signal(tuple(bits), value_type=ResolvedType(f'u{width}'))
+        return Signal(bits=signal.bits, value_type=signal.value_type, module_outputs={})
+
+    def _instantiate_lamp(self, expression: AstNode, parent_signals: SignalTable, parent_indices: dict[str, int], parent_z: int) -> Signal:
+        """Create a single LAMP gate."""
+        arguments = expression.get('args')
+        input_signal = None
+        if isinstance(arguments, list) and len(arguments) > 0:
+            input_signal = self._lower_expression(arguments[0], parent_signals, parent_indices, parent_z, 1)
+        bit = input_signal.bits[0] if input_signal else 0
+        gate_id = self._allocator.create('LAMP', [bit], 0, 'OUT', value_type='bit')
+        signal = Signal((gate_id,), value_type=ResolvedType('bit'))
+        return Signal(bits=signal.bits, value_type=signal.value_type, module_outputs={})
+
+    def _instantiate_switch(self, expression: AstNode, parent_signals: SignalTable, parent_indices: dict[str, int], parent_z: int) -> Signal:
+        """Create a single SWITCH gate with a default state."""
+        arguments = expression.get('args')
+        default_state = 0
+        if isinstance(arguments, list) and len(arguments) > 0:
+            default_state = self._evaluate_integer(arguments[0], parent_indices)
+            if default_state not in (0, 1):
+                default_state = 1 if default_state else 0
+        gate_id = self._allocator.create('SWITCH', [], 0, 'IN', value_type='bit', default_state=default_state)
+        self._allocator.mark_input(gate_id)
+        signal = Signal((gate_id,), value_type=ResolvedType('bit'))
+        return Signal(bits=signal.bits, value_type=signal.value_type, module_outputs={'bit': signal})
+
+    def _instantiate_button(self, expression: AstNode, parent_signals: SignalTable, parent_indices: dict[str, int], parent_z: int) -> Signal:
+        """Create a single BUTTON gate."""
+        gate_id = self._allocator.create('BUTTON', [], 0, 'IN', value_type='bit')
+        self._allocator.mark_input(gate_id)
+        signal = Signal((gate_id,), value_type=ResolvedType('bit'))
+        return Signal(bits=signal.bits, value_type=signal.value_type, module_outputs={'bit': signal})
 

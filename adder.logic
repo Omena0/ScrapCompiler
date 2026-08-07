@@ -1,4 +1,5 @@
 
+// Dynamic adder module
 module Adder() {
     inputs {
         dynamic a
@@ -38,9 +39,14 @@ module Adder() {
     }
 }
 
+// 2 u8 inputs
+x: new IntInput(u8)
+y: new IntInput(u8)
 
-x: 5
-y: 5
+// Add them
+adder: Adder(x, y)
 
-out: new Adder(x, y)
+// Display result
+out: new IntDisplay(u8)
+adder.sum -> out
 

@@ -8,7 +8,7 @@ from .stream import TextStream
 AstNode: TypeAlias = dict[str, Any]
 ModuleNodes: TypeAlias = dict[str, AstNode]
 
-keywords: set[str] = {"module", "new"}
+keywords: set[str] = {"module"}
 fields: dict[str, list[str]] = {
     'module': ['inputs', 'outputs', 'gates']
 }
@@ -269,7 +269,37 @@ def _parse_unary(stream: TextStream) -> AstNode:
                 'value': _parse_unary(stream),
             })
 
+    cast = _try_parse_cast(stream)
+    if cast is not None:
+        return cast
+
     return _parse_postfix(stream, _parse_primary(stream))
+
+def _try_parse_cast(stream: TextStream) -> AstNode | None:
+    """Parse a type cast expression like <u8>10 if present."""
+    if not stream.match('<'):
+        return None
+    start = stream.pos
+    stream.consume_text('<')
+    _consume_trivia(stream)
+    cast_type = stream.consume_word()
+    if not cast_type:
+        stream.pos = start
+        return None
+    _consume_trivia(stream)
+    if not stream.consume_text('>'):
+        stream.pos = start
+        return None
+    _consume_trivia(stream)
+    value = _parse_primary(stream)
+    if not isinstance(value, dict):
+        stream.pos = start
+        return None
+    return stream.emit({
+        'type': 'cast',
+        'cast_type': cast_type,
+        'value': value,
+    })
 
 def parse_expr(stream: TextStream, min_precedence: int = 1) -> AstNode:
     """Parse a precedence-aware expression from ``stream``."""
@@ -445,14 +475,6 @@ def parse_keyword(keyword: str, stream: TextStream) -> AstNode:
             })
         }
 
-    elif keyword == 'new':
-        stream.consume_whitespace()
-        value = parse_expr(stream)
-        return stream.emit({
-            "type": "new",
-            "value": value
-        })
-
     else:
         stream.error('SyntaxError', f"Invalid keyword: '{keyword}'", keyword)
 
@@ -474,6 +496,7 @@ def parse_ident(name: str, stream: TextStream) -> AstNode:
 
 def parse_toplevel(stream: TextStream) -> tuple[ModuleNodes, list[AstNode]]:
     """Parse one top-level module declaration or gate assignment."""
+    consume_comment(stream)
     stream.consume_whitespace()
     word = stream.consume_word()
 
@@ -483,6 +506,25 @@ def parse_toplevel(stream: TextStream) -> tuple[ModuleNodes, list[AstNode]]:
     # Word is an identifier
     if stream.match(':'):
         return {}, [parse_ident(word, stream)]
+
+    # Arrow statement at top level: expr, expr -> target
+    if '->' in stream.current_line:
+        stream.pos -= len(word)
+        args = []
+        while not stream.consume_text('->'):
+            stream.consume_whitespace()
+            args.append(parse_expr(stream))
+            stream.consume_whitespace()
+            if stream.consume_text('->'):
+                break
+            stream.expect(',')
+        stream.consume_whitespace()
+        to = stream.consume_word()
+        return {}, [stream.emit({
+            "type": "arrow",
+            "from": args,
+            "to": to
+        })]
 
     stream.error('SyntaxError', f'invalid syntax while parsing toplevel: {word}', word)
 

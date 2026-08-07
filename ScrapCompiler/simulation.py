@@ -13,6 +13,7 @@ class IrGate:
     type: str
     inputs: list[int]
     value_type: str = 'bit'
+    default_state: int = 0
 
 
 def parse_ir(ir: str) -> list[IrGate]:
@@ -48,7 +49,15 @@ def parse_ir(ir: str) -> list[IrGate]:
         y = int(tokens[1])
         z = int(tokens[2])
         gate_type = tokens[3]
-        inputs = [int(token) for token in tokens[4:]]
+        default_state = 0
+        if gate_type == 'SWITCH' and len(tokens) > 4:
+            try:
+                default_state = int(tokens[-1])
+                inputs = [int(token) for token in tokens[4:-1]]
+            except ValueError:
+                inputs = [int(token) for token in tokens[4:]]
+        else:
+            inputs = [int(token) for token in tokens[4:]]
 
         gates.append(
             IrGate(
@@ -60,6 +69,7 @@ def parse_ir(ir: str) -> list[IrGate]:
                 gate_type,
                 inputs,
                 id_to_type.get(gate_id, 'bit'),
+                default_state,
             )
         )
     return gates
@@ -78,8 +88,33 @@ def extract_type_comments(ir: str) -> dict[str, list[int]]:
             continue
 
         ids_text, type_name = comment.split(':', 1)
-        ids = _parse_id_ranges(ids_text.strip())
-        groups[type_name.strip()] = ids
+        ids_text = ids_text.strip()
+        if not ids_text or not ids_text[0].isdigit():
+            continue
+        ids = _parse_id_ranges(ids_text)
+        groups.setdefault(type_name.strip(), []).extend(ids)
+    return groups
+
+
+def extract_variable_comments(ir: str) -> dict[str, list[int]]:
+    """Extract variable comment groups from IR text."""
+    groups: dict[str, list[int]] = {}
+    for line in ir.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith('#'):
+            continue
+
+        comment = stripped[1:].strip()
+        if ':' not in comment:
+            continue
+
+        var_name, ids_text = comment.split(':', 1)
+        var_name = var_name.strip()
+        ids_text = ids_text.strip()
+        if not var_name or not var_name[0].isalpha():
+            continue
+        ids = _parse_id_ranges(ids_text)
+        groups[var_name] = ids
     return groups
 
 def simulate_ir(ir: str, input_values: dict[int, int] | dict[int, list[int]] | list[int] | tuple[int, ...] | None = None) -> dict[int, int]:
@@ -88,7 +123,9 @@ def simulate_ir(ir: str, input_values: dict[int, int] | dict[int, list[int]] | l
         input_values = {}
 
     gates = parse_ir(ir)
-    _, ordered_groups = _build_input_groups(gates)
+    type_groups = extract_type_comments(ir)
+    variable_groups = extract_variable_comments(ir)
+    _, ordered_groups = _build_input_groups(gates, type_groups, variable_groups)
     values = _resolve_input_group_values(input_values, ordered_groups)
 
     for gate in gates:
@@ -130,6 +167,14 @@ def simulate_ir(ir: str, input_values: dict[int, int] | dict[int, list[int]] | l
             values[gate.id] = 0 if sum(inputs) % 2 else 1
             continue
 
+        if gate.type == 'LAMP':
+            values[gate.id] = inputs[0] if inputs else 0
+            continue
+
+        if gate.type == 'SWITCH':
+            values[gate.id] = gate.default_state if not inputs else inputs[0]
+            continue
+
         raise ValueError(f"Unsupported gate type for simulation: {gate.type}")
 
     return _collect_output_values(values, gates)
@@ -163,10 +208,69 @@ def _extract_type_annotations(ir: str) -> dict[int, str]:
     return annotations
 
 
-def _build_input_groups(gates: list[IrGate]) -> tuple[dict[int, list[int]], list[tuple[list[int], str]]]:
+def _build_input_groups(
+    gates: list[IrGate],
+    type_groups: dict[str, list[int]] | None = None,
+    variable_groups: dict[str, list[int]] | None = None,
+) -> tuple[dict[int, list[int]], list[tuple[list[int], str]]]:
     groups: dict[int, list[int]] = {}
     inputs = sorted((gate for gate in gates if gate.prefix == 'IN'), key=lambda gate: gate.id)
     ordered_groups: list[tuple[list[int], str]] = []
+
+    if type_groups and variable_groups:
+        input_ids = {gate.id for gate in gates if gate.prefix == 'IN'}
+        variable_input_groups: dict[str, list[int]] = {}
+        for var_name, ids in variable_groups.items():
+            var_in_ids = [gate_id for gate_id in ids if gate_id in input_ids]
+            if var_in_ids:
+                variable_input_groups[var_name] = var_in_ids
+
+        used_ids: set[int] = set()
+        variable_groups_list: list[tuple[list[int], str]] = []
+
+        for var_name, var_ids in variable_input_groups.items():
+            if not var_ids:
+                continue
+            type_name = gates[var_ids[0] - 1].value_type
+            width = _type_width(type_name)
+            if len(var_ids) == width:
+                variable_groups_list.append((var_ids, type_name))
+                used_ids.update(var_ids)
+
+        if variable_groups_list:
+            remaining_type_groups: dict[str, list[int]] = {}
+            for type_name, ids in type_groups.items():
+                remaining = [gate_id for gate_id in ids if gate_id in input_ids and gate_id not in used_ids]
+                if remaining:
+                    remaining_type_groups[type_name] = remaining
+
+            for type_name, ids in remaining_type_groups.items():
+                width = _type_width(type_name)
+                for group_ids in _chunk(ids, width):
+                    variable_groups_list.append((group_ids, type_name))
+
+            variable_groups_list.sort(key=lambda item: item[0][0])
+            for group_ids, type_name in variable_groups_list:
+                ordered_groups.append((group_ids, type_name))
+                for gate_id in group_ids:
+                    groups[gate_id] = group_ids
+            return groups, ordered_groups
+
+    if type_groups:
+        groups_list: list[tuple[list[int], str]] = []
+        input_ids = {gate.id for gate in gates if gate.prefix == 'IN'}
+        for type_name, ids in type_groups.items():
+            width = _type_width(type_name)
+            input_ids_for_type = sorted([gate_id for gate_id in ids if gate_id in input_ids])
+            for group_ids in _chunk(input_ids_for_type, width):
+                groups_list.append((group_ids, type_name))
+        groups_list.sort(key=lambda item: item[0][0])
+        for group_ids, type_name in groups_list:
+            ordered_groups.append((group_ids, type_name))
+            for gate_id in group_ids:
+                groups[gate_id] = group_ids
+        return groups, ordered_groups
+
     current: list[IrGate] = []
 
     def flush_group() -> None:
@@ -194,6 +298,39 @@ def _build_input_groups(gates: list[IrGate]) -> tuple[dict[int, list[int]], list
             current.append(gate)
     flush_group()
     return groups, ordered_groups
+
+
+def _split_consecutive(ids: list[int], width: int = 1) -> list[list[int]]:
+    """Split a sorted list of ids into consecutive runs of at most `width` ids."""
+    if not ids:
+        return []
+    result: list[list[int]] = []
+    run: list[int] = [ids[0]]
+    for gate_id in ids[1:]:
+        if gate_id == run[-1] + 1 and len(run) < width:
+            run.append(gate_id)
+        else:
+            result.append(run)
+            run = [gate_id]
+    result.append(run)
+    return result
+
+
+def _chunk(ids: list[int], size: int) -> list[list[int]]:
+    """Split a list into fixed-size chunks."""
+    return [ids[i:i + size] for i in range(0, len(ids), size)]
+
+
+def _type_width(type_name: str) -> int:
+    """Return the bit width for a type name like u8, i16, bit, or dynamic."""
+    if type_name.startswith('u') or type_name.startswith('i'):
+        try:
+            return int(type_name[1:])
+        except ValueError:
+            return 1
+    if type_name.startswith('dynamic'):
+        return 1
+    return 1
 
 
 def _cast_to_bits(raw_value: int | list[int], type_name: str, ids: list[int]) -> dict[int, int]:
