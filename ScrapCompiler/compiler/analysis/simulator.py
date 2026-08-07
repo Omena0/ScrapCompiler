@@ -41,6 +41,7 @@ class StepSimulator:
         self.history: list[GateValues] = []
         self.callbacks: list[GateCallback] = []
         self.breakpoints: set[int] = set()
+        self._timer_history: dict[int, list[int]] = {}
 
     def add_callback(self, callback: GateCallback) -> StepSimulator:
         self.callbacks.append(callback)
@@ -59,7 +60,19 @@ class StepSimulator:
                 continue
             inputs = [self.values.get(src, 0) for src in gate.inputs]
             old_val = self.values.get(gate.key, 0)
-            new_val = self._evaluate(gate.type, inputs)
+
+            if gate.type == "TIMER":
+                delay = gate.delay if hasattr(gate, "delay") else 0
+                history = self._timer_history.setdefault(gate.key, [])
+                history.append(inputs[0] if inputs else 0)
+                total_delay = delay + 1
+                if len(history) <= total_delay:
+                    new_val = 0
+                else:
+                    new_val = history[-(total_delay + 1)]
+            else:
+                new_val = self._evaluate(gate.type, inputs)
+
             if new_val != old_val:
                 changed.append((gate.key, old_val, new_val))
                 new_values[gate.key] = new_val
@@ -100,5 +113,7 @@ class StepSimulator:
         elif gate_type == "SWITCH":
             return inputs[0] if inputs else 0
         elif gate_type == "LAMP":
+            return inputs[0] if inputs else 0
+        elif gate_type == "TIMER":
             return inputs[0] if inputs else 0
         return 0

@@ -303,6 +303,29 @@ class ResolutionMixin(CompilerMixinBase):
                 )
             return argument_types[0]
 
+        if name == "timer" or name == "Timer":
+            if len(argument_types) != 2:
+                self.error(
+                    "TypeMismatchError",
+                    "timer requires exactly two arguments: delay and signal",
+                    expression,
+                )
+            delay_type = argument_types[0]
+            signal_type = argument_types[1]
+            if delay_type.name not in ("int", "dynamic"):
+                self.error(
+                    "TypeMismatchError",
+                    "timer delay must be an integer",
+                    expression,
+                )
+            if signal_type.name not in ("bit", "dynamic"):
+                self.error(
+                    "TypeMismatchError",
+                    "timer signal must be bit or dynamic",
+                    expression,
+                )
+            return signal_type
+
         if name not in self.module_types:
             self.error("UnknownTypeError", f"Unknown callable type: {name}", expression)
 

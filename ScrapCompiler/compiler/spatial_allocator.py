@@ -20,6 +20,7 @@ class SpatialAllocator:
         variable: str = "",
         default_state: int = 0,
         is_output_port: bool = False,
+        delay: int = 0,
     ) -> int:
         """Allocate a gate and return its internal handle."""
         key = self._next_key
@@ -48,6 +49,7 @@ class SpatialAllocator:
             variable,
             default_state,
             is_output_port,
+            delay,
         )
         return key
 

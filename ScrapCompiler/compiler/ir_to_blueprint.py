@@ -12,6 +12,7 @@ GATE_COLORS: dict[str, str] = {
     "NAND": "D02525",
     "NOR": "673B00",
     "XNOR": "35086C",
+    "TIMER": "DF7F01",
 }
 
 INPUT_COLOR = "222222"
@@ -23,29 +24,30 @@ GATE_SHAPE_ID = "9f0f56e8-2c31-4d83-996c-d00a9b296c3f"
 SWITCH_SHAPE_ID = "7cf717d7-d167-4f2d-a6e7-6b2c70aa3986"
 LAMP_SHAPE_ID = "ebefa387-fe4a-4839-bdd9-b6b4da39368f"
 BUTTON_SHAPE_ID = "1e8d93a4-506b-470d-9ada-9c0a321e2db5"
+TIMER_SHAPE_ID = "8f7fd0e7-c46e-4944-a414-7ce2437bb30f"
 
 
 def ir_to_blueprint(ir_text: str) -> dict:
-    """Convert IR text to a Stormworks blueprint dictionary.
+    """Convert IR text to a Scrap Mechanic blueprint dictionary.
 
     Args:
         ir_text: The IR text to convert.
 
     Returns:
-        A dictionary representing the Stormworks blueprint.
+        A dictionary representing the Scrap Mechanic blueprint.
     """
     gates = parse_ir(ir_text)
     return _build_blueprint(gates)
 
 
 def _build_blueprint(gates: list[IrGate]) -> dict:
-    """Build a Stormworks blueprint from a list of IR gates.
+    """Build a Scrap Mechanic blueprint from a list of IR gates.
 
     Args:
         gates: The list of IR gates to convert.
 
     Returns:
-        A dictionary representing the Stormworks blueprint.
+        A dictionary representing the Scrap Mechanic blueprint.
     """
     if not gates:
         return {"bodies": [{"childs": []}], "version": 4}
@@ -76,7 +78,16 @@ def _build_blueprint(gates: list[IrGate]) -> dict:
             "xaxis": 1,
             "zaxis": 1,
         }
-        if gate.prefix == "IN":
+        if gate.type == "TIMER":
+            block["controller"] = {
+                "active": False,
+                "id": gate.id,
+                "joints": None,
+                "mode": 1,
+                "seconds": 0,
+                "ticks": gate.delay,
+            }
+        elif gate.prefix == "IN":
             block["controller"] = {
                 "active": False,
                 "controllers": [{"id": gate.id}],
@@ -122,25 +133,20 @@ def _get_gate_color(gate: IrGate) -> str:
 
 
 def _get_gate_shape_id(gate: IrGate) -> str:
-    """Get the Stormworks shape ID for a gate based on its type.
-
-    Args:
-        gate: The IR gate to get the shape ID for.
-
-    Returns:
-        A UUID string representing the Stormworks shape.
-    """
+    """Get the Scrap Mechanic shape ID for the gate based on its type."""
     if gate.type == "SWITCH":
         return SWITCH_SHAPE_ID
-    if gate.type == "BUTTON":
+    elif gate.type == "BUTTON":
         return BUTTON_SHAPE_ID
-    if gate.type == "LAMP":
+    elif gate.type == "LAMP":
         return LAMP_SHAPE_ID
+    elif gate.type == "TIMER":
+        return TIMER_SHAPE_ID
     return GATE_SHAPE_ID
 
 
 def write_blueprint(ir_text: str, path: str) -> None:
-    """Write a Stormworks blueprint to a file.
+    """Write a Scrap Mechanic blueprint to a file.
 
     Args:
         ir_text: The IR text to convert.

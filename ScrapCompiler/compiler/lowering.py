@@ -307,6 +307,41 @@ class LoweringMixin(CompilerMixinBase):
             )
 
         if name in IR_GATES:
+            if name == "Timer":
+                if len(arguments) != 2:
+                    self.error(
+                        "InvalidExpressionError",
+                        "timer requires exactly two arguments: delay and signal",
+                        value,
+                    )
+                delay_arg = arguments[0]
+                signal_arg = arguments[1]
+                if not isinstance(delay_arg, dict) or not isinstance(signal_arg, dict):
+                    self.error(
+                        "InvalidExpressionError",
+                        "timer arguments must be expressions",
+                        value,
+                    )
+                delay = self._evaluate_integer(delay_arg, indices)
+                source = self._lower_expression(signal_arg, signals, indices, z, None)
+                if not source.bits:
+                    self.error("InvalidExpression", "timer signal cannot be empty", signal_arg)
+                resolved_type = self.resolve_expression(value, signals)  # type: ignore[arg-type]
+                formatted_value_type = self._format_type(resolved_type)
+                prefix = "IN" if source.is_input else ""
+                bits = [
+                    self._allocator.create(
+                        "TIMER",
+                        [bit],
+                        index,
+                        prefix,
+                        value_type=formatted_value_type,
+                        delay=delay,
+                    )
+                    for index, bit in enumerate(source.bits)
+                ]
+                return Signal(tuple(bits), value_type=resolved_type)
+
             argument_signals = [
                 self._lower_expression(argument, signals, indices, z, None)
                 for argument in arguments
@@ -485,6 +520,42 @@ class LoweringMixin(CompilerMixinBase):
             self.error(
                 "InvalidExpressionError", "Invalid built-in gate call", expression
             )
+
+        if name == "Timer":
+            if len(arguments) != 2:
+                self.error(
+                    "InvalidExpressionError",
+                    "timer requires exactly two arguments: delay and signal",
+                    expression,
+                )
+            delay_arg = arguments[0]
+            signal_arg = arguments[1]
+            if not isinstance(delay_arg, dict) or not isinstance(signal_arg, dict):
+                self.error(
+                    "InvalidExpressionError",
+                    "timer arguments must be expressions",
+                    expression,
+                )
+            delay = self._evaluate_integer(delay_arg, indices)
+            source = self._lower_expression(signal_arg, signals, indices, z, None)
+            if not source.bits:
+                self.error("InvalidExpression", "timer signal cannot be empty", signal_arg)
+            resolved_type = self.resolve_expression(expression, signals)  # type: ignore[arg-type]
+            formatted_value_type = self._format_type(resolved_type)
+            prefix = "IN" if source.is_input else ""
+            bits = [
+                self._allocator.create(
+                    "TIMER",
+                    [bit],
+                    index,
+                    prefix,
+                    value_type=formatted_value_type,
+                    delay=delay,
+                )
+                for index, bit in enumerate(source.bits)
+            ]
+            return Signal(tuple(bits), value_type=resolved_type)
+
         sources = [
             self._lower_expression(argument, signals, indices, z, width)
             for argument in arguments

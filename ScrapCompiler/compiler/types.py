@@ -17,6 +17,7 @@ IR_GATES: Final = {
     "Nand": "NAND",
     "Nor": "NOR",
     "Or": "OR",
+    "Timer": "TIMER",
     "XNor": "XNOR",
     "Xor": "XOR",
 }
@@ -88,3 +89,4 @@ class Gate:
     variable: str = ""
     default_state: int = 0
     is_output_port: bool = False
+    delay: int = 0

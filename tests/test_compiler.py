@@ -671,3 +671,71 @@ x: new AssertGate(1, 1)
 """
     with pytest.raises(SystemExit):
         compile(source)
+
+
+def test_timer_compilation():
+    source = """
+module TimerTest() {
+    inputs {
+        bit a
+    }
+
+    outputs {
+        bit out
+    }
+
+    gates {
+        out: new Timer(2, a)
+    }
+}
+
+x: new TimerTest(1)
+"""
+    ir = compile(source)
+    assert "TIMER" in ir
+
+
+def test_timer_simulation():
+    source = """
+module TimerTest() {
+    inputs {
+        bit a
+    }
+
+    outputs {
+        bit out
+    }
+
+    gates {
+        out: new Timer(1, a)
+    }
+}
+
+x: new TimerTest(1)
+"""
+    ir = compile(source)
+    result = simulate_ir(ir, [1])
+    assert result == 0
+
+
+def test_timer_delay_in_ir():
+    source = """
+module TimerTest() {
+    inputs {
+        bit a
+    }
+
+    outputs {
+        bit out
+    }
+
+    gates {
+        out: new Timer(3, a)
+    }
+}
+
+x: new TimerTest(1)
+"""
+    ir = compile(source)
+    assert "TIMER" in ir
+    assert "3" in ir

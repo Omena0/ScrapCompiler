@@ -1,5 +1,8 @@
 # todo
 
+Add VSCode extension output log, and a ton of logging to it.
+Since rn hovers and some other things dont work i think something is crashing or it cant find a binary or smth.
+
 Add timer block support. In the IR just call it TIMER.
 First arg is the delay and the second is the input.
 A timer is equivalent to n-1 OR gates in a chain.

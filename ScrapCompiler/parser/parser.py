@@ -14,7 +14,7 @@ fields: dict[str, list[str]] = {
 }
 complex_fields: list[str] = ["gates"]
 
-builtins: list[str] = ["Xor", "And", "Or", "Nor", "XNor", "Nand"]
+builtins: list[str] = ["Xor", "And", "Or", "Nor", "XNor", "Nand", "Timer"]
 
 valid_decorators: set[str] = {
     "assert",

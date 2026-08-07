@@ -158,6 +158,8 @@ class ScrapCompiler(ResolutionMixin, LoweringMixin, InstantiationMixin, ModulesM
             ]
             if gate.type == "SWITCH" and gate.default_state:
                 parts.append(str(gate.default_state))
+            if gate.type == "TIMER" and gate.delay:
+                parts.append(str(gate.delay))
             lines.append(f"{line_id}: {' '.join(parts)}")
 
         lines.append("\n# Compute")
@@ -182,6 +184,8 @@ class ScrapCompiler(ResolutionMixin, LoweringMixin, InstantiationMixin, ModulesM
             ]
             if gate.type == "SWITCH" and gate.default_state:
                 parts.append(str(gate.default_state))
+            if gate.type == "TIMER" and gate.delay:
+                parts.append(str(gate.delay))
             lines.append(f"{line_id}: {' '.join(parts)}")
 
         lines.append("\n# Output")
