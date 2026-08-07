@@ -1,5 +1,35 @@
 # todo
 
+Add timer block support. In the IR just call it TIMER.
+First arg is the delay and the second is the input.
+A timer is equivalent to n-1 OR gates in a chain.
+n-1 because the timer itself has a 1 tick delay.
+A timer block delays the signal sent to it by n+1 ticks, where n is the delay arg.
+timer block blueprint json syntax. Only use ticks and leave seconds at 0.
+
+```json
+{
+  // SHAPE 1 ID:12472
+  "color": "DF7F01",
+  "controller": {
+    "active": false,
+    "id": 10442,
+    "seconds": 0,
+    "ticks": 0
+  },
+  "pos": {
+    "x": -1,
+    "y": -13,
+    "z": 0
+  },
+  "shapeId": "8f7fd0e7-c46e-4944-a414-7ce2437bb30f", // Timer
+  "xaxis": 1,
+  "zaxis": -2
+}
+```
+
+Also make sure blueprint generation works.
+
 Add decorator support (no user defined decorators)
 Support multiple decorators on a single module.
 
@@ -39,13 +69,3 @@ This will support any other loop types in the future too.
 Update VSCode Extension to match features.
 
 Implement VSCode Extension README.md
-
-Fix:
-ScrapCompiler/simulation.py:180: error: Incompatible return value type (got "int | list[int] | dict[int,int]", expected "dict[int, int]") [return-value]
-ScrapCompiler/simulation.py:373: error: Incompatible types in assignment (expression has type "int | list[int]", variable has type "int") [assignment]
-ScrapCompiler/simulation.py:378: error: Incompatible types in assignment (expression has type "int | list[int]", variable has type "int") [assignment]
-ScrapCompiler/compiler/spatial_allocator.py:84: error: Incompatible types in assignment (expression has type "tuple[int, int]", variable has type "int") [assignment]
-ScrapCompiler/compiler/spatial_allocator.py:85: error: Argument 1 to "setdefault" of "MutableMapping" has incompatible type "int"; expected "tuple[int, int]" [arg-type]
-ScrapCompiler/parser/parser.py:240: error: Incompatible types in assignment (expression has type "dict[str, Any]", variable has type "str") [assignment]
-ScrapCompiler/parser/parser.py:242: error: Incompatible return value type (got "str", expected "dict[str, Any]") [return-value]
-Found 7 errors in 3 files (checked 26 source files)

@@ -1,179 +1,177 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-<meta charset="UTF-8">
-<title>Logic Grid Visualizer</title>
-<style>
-body {
-    margin: 0;
-    display: flex;
-    height: 100vh;
-    font-family: sans-serif;
-    background: #1a1a1a;
-    color: white;
-}
+  <head>
+    <meta charset="UTF-8" />
+    <title>Logic Grid Visualizer</title>
+    <style>
+      body {
+        margin: 0;
+        display: flex;
+        height: 100vh;
+        font-family: sans-serif;
+        background: #1a1a1a;
+        color: white;
+      }
 
-#left {
-    width: 420px;
-    display: flex;
-    flex-direction: column;
-}
+      #left {
+        width: 420px;
+        display: flex;
+        flex-direction: column;
+      }
 
-textarea {
-    flex: 1;
-    background: #111;
-    color: white;
-    border: none;
-    padding: 10px;
-    resize: none;
-    font-family: monospace;
-}
+      textarea {
+        flex: 1;
+        background: #111;
+        color: white;
+        border: none;
+        padding: 10px;
+        resize: none;
+        font-family: monospace;
+      }
 
-button {
-    padding: 10px;
-    background: #444;
-    color: white;
-    border: none;
-    cursor: pointer;
-}
+      button {
+        padding: 10px;
+        background: #444;
+        color: white;
+        border: none;
+        cursor: pointer;
+      }
 
-canvas {
-    flex: 1;
-    background: #202020;
-}
-</style>
-</head>
-<body>
+      canvas {
+        flex: 1;
+        background: #202020;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="left">
+      <textarea id="input"></textarea>
+      <button onclick="render()">Render</button>
+    </div>
 
-<div id="left">
-<textarea id="input"></textarea>
-<button onclick="render()">Render</button>
-</div>
+    <canvas id="canvas"></canvas>
 
-<canvas id="canvas"></canvas>
+    <script>
+      const canvas = document.getElementById("canvas");
+      const ctx = canvas.getContext("2d");
 
-<script>
-const canvas = document.getElementById("canvas");
-const ctx = canvas.getContext("2d");
+      function resize() {
+        canvas.width = window.innerWidth - 420;
+        canvas.height = window.innerHeight;
+      }
+      window.onresize = resize;
+      resize();
 
-function resize() {
-    canvas.width = window.innerWidth - 420;
-    canvas.height = window.innerHeight;
-}
-window.onresize = resize;
-resize();
+      function color(type) {
+        return (
+          {
+            IN: "#4caf50",
+            OUT: "#ff9800",
+            XOR: "#2196f3",
+            AND: "#e91e63",
+            OR: "#9c27b0",
+          }[type] || "#888"
+        );
+      }
 
-function color(type) {
-    return {
-        IN:"#4caf50",
-        OUT:"#ff9800",
-        XOR:"#2196f3",
-        AND:"#e91e63",
-        OR:"#9c27b0"
-    }[type] || "#888";
-}
+      function render() {
+        const nodes = {};
 
-function render() {
-    const nodes = {};
+        const lines = document.getElementById("input").value.split("\n");
 
-    const lines = document.getElementById("input").value.split("\n");
+        for (const line of lines) {
+          const s = line.trim();
+          if (!s || s.startsWith("#")) continue;
 
-    for (const line of lines) {
-        const s = line.trim();
-        if (!s || s.startsWith("#")) continue;
+          const m = s.match(/^(\d+):\s+(.*)$/);
+          if (!m) continue;
 
-        const m = s.match(/^(\d+):\s+(.*)$/);
-        if (!m) continue;
+          const id = Number(m[1]);
+          const parts = m[2].split(/\s+/);
 
-        const id = Number(m[1]);
-        const parts = m[2].split(/\s+/);
-
-        if (parts[0] === "IN") {
+          if (parts[0] === "IN") {
             nodes[id] = {
-                id,
-                type: "IN",
-                x:+parts[1],
-                y:+parts[2],
-                z:+parts[3],
-                inputs:[]
+              id,
+              type: "IN",
+              x: +parts[1],
+              y: +parts[2],
+              z: +parts[3],
+              inputs: [],
             };
-        }
-        else if (parts[0] === "OUT") {
+          } else if (parts[0] === "OUT") {
             nodes[id] = {
-                id,
-                type:"OUT",
-                x:+parts[1],
-                y:+parts[2],
-                z:+parts[3],
-                inputs:[+parts[5]]
+              id,
+              type: "OUT",
+              x: +parts[1],
+              y: +parts[2],
+              z: +parts[3],
+              inputs: [+parts[5]],
             };
-        }
-        else {
+          } else {
             nodes[id] = {
-                id,
-                x:+parts[0],
-                y:+parts[1],
-                z:+parts[2],
-                type:parts[3],
-                inputs:[+parts[4], +parts[5]]
+              id,
+              x: +parts[0],
+              y: +parts[1],
+              z: +parts[2],
+              type: parts[3],
+              inputs: [+parts[4], +parts[5]],
             };
+          }
         }
-    }
 
-    const all = Object.values(nodes);
+        const all = Object.values(nodes);
 
-    if (!all.length) return;
+        if (!all.length) return;
 
-    const scale = 45;
-    const margin = 60;
+        const scale = 45;
+        const margin = 60;
 
-    const maxX = Math.max(...all.map(n=>n.x));
-    const maxY = Math.max(...all.map(n=>n.y));
+        const maxX = Math.max(...all.map((n) => n.x));
+        const maxY = Math.max(...all.map((n) => n.y));
 
-    ctx.clearRect(0,0,canvas.width,canvas.height);
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // connections
-    ctx.lineWidth = 2;
-    ctx.strokeStyle = "#777";
+        // connections
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = "#777";
 
-    for (const n of all) {
-        const x1 = margin + n.x*scale;
-        const y1 = margin + n.y*scale;
+        for (const n of all) {
+          const x1 = margin + n.x * scale;
+          const y1 = margin + n.y * scale;
 
-        for (const src of n.inputs) {
+          for (const src of n.inputs) {
             const a = nodes[src];
             if (!a) continue;
 
-            const x0 = margin + a.x*scale;
-            const y0 = margin + a.y*scale;
+            const x0 = margin + a.x * scale;
+            const y0 = margin + a.y * scale;
 
             ctx.beginPath();
-            ctx.moveTo(x0,y0);
-            ctx.lineTo(x1,y1);
+            ctx.moveTo(x0, y0);
+            ctx.lineTo(x1, y1);
             ctx.stroke();
+          }
         }
-    }
 
-    // nodes
-    for (const n of all) {
-        const x = margin + n.x*scale;
-        const y = margin + n.y*scale;
+        // nodes
+        for (const n of all) {
+          const x = margin + n.x * scale;
+          const y = margin + n.y * scale;
 
-        ctx.fillStyle = color(n.type);
-        ctx.beginPath();
-        ctx.arc(x,y,12,0,Math.PI*2);
-        ctx.fill();
+          ctx.fillStyle = color(n.type);
+          ctx.beginPath();
+          ctx.arc(x, y, 12, 0, Math.PI * 2);
+          ctx.fill();
 
-        ctx.fillStyle = "white";
-        ctx.font = "10px monospace";
-        ctx.textAlign = "center";
-        ctx.fillText(n.id,x,y+3);
+          ctx.fillStyle = "white";
+          ctx.font = "10px monospace";
+          ctx.textAlign = "center";
+          ctx.fillText(n.id, x, y + 3);
 
-        ctx.font = "11px sans-serif";
-        ctx.fillText(n.type,x,y-18);
-    }
-}
-</script>
-
-</body>
+          ctx.font = "11px sans-serif";
+          ctx.fillText(n.type, x, y - 18);
+        }
+      }
+    </script>
+  </body>
 </html>

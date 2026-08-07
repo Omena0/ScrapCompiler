@@ -221,7 +221,9 @@ class LoweringMixin(CompilerMixinBase):
         lowered_args = []
         for arg in arguments:
             if not isinstance(arg, dict):
-                self.error("InvalidGate", "Bits loop argument must be an expression", statement)
+                self.error(
+                    "InvalidGate", "Bits loop argument must be an expression", statement
+                )
             lowered_args.append(self._lower_expression(arg, signals, indices, z, None))
 
         if not all(a.bits for a in lowered_args):
@@ -229,7 +231,9 @@ class LoweringMixin(CompilerMixinBase):
 
         length = len(lowered_args[0].bits)
         if not all(len(a.bits) == length for a in lowered_args):
-            self.error("InvalidGate", "Bits loop arguments must have the same width", statement)
+            self.error(
+                "InvalidGate", "Bits loop arguments must have the same width", statement
+            )
 
         if not variables:
             variables = [

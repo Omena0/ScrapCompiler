@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, cast, Union
+from typing import cast
 
 _dict_int_int = dict[int, int]
 _dict_int_list = dict[int, list[int]]
@@ -360,7 +360,7 @@ def _cast_to_bits(
             raise ValueError(
                 f"Expected {len(ids)} bits for {type_name}, got {len(raw_value)}"
             )
-        return dict(zip(ids, raw_value))
+        return dict(zip(ids, raw_value, strict=False))
 
     if not isinstance(raw_value, int):
         raise ValueError(
@@ -375,7 +375,7 @@ def _cast_to_bits(
         value = 1 if raw_value else 0
 
     bits = [(value >> index) & 1 for index in range(width)]
-    return {gate_id: bit for gate_id, bit in zip(ids, bits)}
+    return {gate_id: bit for gate_id, bit in zip(ids, bits, strict=False)}
 
 
 def _resolve_input_group_values(
@@ -391,7 +391,7 @@ def _resolve_input_group_values(
         return values
 
     if isinstance(input_values, dict):
-        dict_inputs = cast('_dict_int_int | _dict_int_list', input_values)
+        dict_inputs = cast("_dict_int_int | _dict_int_list", input_values)
         for group, type_name in ordered_groups:
             first_id = group[0]
             if first_id in dict_inputs:
@@ -405,7 +405,9 @@ def _resolve_input_group_values(
                     if isinstance(bit_value, int):
                         values[gate_id] = bit_value & 1
                     else:
-                        raise ValueError(f"Bit input values must be ints for gate {gate_id}")
+                        raise ValueError(
+                            f"Bit input values must be ints for gate {gate_id}"
+                        )
                 else:
                     values[gate_id] = 0
         return values

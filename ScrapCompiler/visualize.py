@@ -159,7 +159,7 @@ def run(ir: str):
 
         draw_grid(max(maxX, maxZ, 1) * 2, 1)
 
-        for gate_id, prefix, x, y, z, gate_type, inputs in gates:
+        for gate_id, _prefix, x, y, z, gate_type, _inputs in gates:
             x -= maxX // 2
             z -= maxZ // 2
 
