@@ -52,6 +52,14 @@ BUILTIN_MODULES: Final = {
         "inputs": [],
         "outputs": [{"name": "bit", "type": "bit"}],
     },
+    "ButtonInput": {
+        "inputs": [],
+        "outputs": [{"name": "bit", "type": "bit"}],
+    },
+    "Object": {
+        "inputs": [{"name": "value", "type": "object"}],
+        "outputs": [],
+    },
 }
 
 
@@ -90,3 +98,4 @@ class Gate:
     default_state: int = 0
     is_output_port: bool = False
     delay: int = 0
+    annotation: object = None

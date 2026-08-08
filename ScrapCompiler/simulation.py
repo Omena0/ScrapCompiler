@@ -56,7 +56,7 @@ def parse_ir(ir: str) -> list[IrGate]:
         gate_type = tokens[3]
         default_state = 0
         delay = 0
-        if gate_type == "SWITCH" and len(tokens) > 4:
+        if gate_type == "SWITCH" and prefix == "IN" and len(tokens) > 4:
             try:
                 default_state = int(tokens[-1])
                 inputs = [int(token) for token in tokens[4:-1]]
@@ -147,58 +147,74 @@ def simulate_ir(
     _, ordered_groups = _build_input_groups(gates, type_groups, variable_groups)
     values = _resolve_input_group_values(input_values, ordered_groups)
 
+    gate_by_id: dict[int, Gate] = {gate.id: gate for gate in gates}
+    in_ids: set[int] = {gate.id for gate in gates if gate.prefix == "IN"}
+    visited: set[int] = set()
+    order: list[int] = []
+
+    def visit(gate_id: int) -> None:
+        if gate_id in visited or gate_id in in_ids:
+            return
+        visited.add(gate_id)
+        gate = gate_by_id[gate_id]
+        for input_id in gate.inputs:
+            visit(input_id)
+        order.append(gate_id)
+
     for gate in gates:
-            if gate.prefix == "IN":
-                continue
+        if gate.prefix != "IN":
+            visit(gate.id)
 
-            inputs = [values[input_id] for input_id in gate.inputs]
+    for gate_id in order:
+        gate = gate_by_id[gate_id]
+        inputs = [values[input_id] for input_id in gate.inputs]
 
-            if gate.type == "NOT":
-                if not inputs:
-                    values[gate.id] = 1
-                elif len(inputs) == 1:
-                    values[gate.id] = 0 if inputs[0] else 1
-                else:
-                    raise ValueError(f"NOT gate {gate.id} requires exactly one input")
-                continue
+        if gate.type == "NOT":
+            if not inputs:
+                values[gate.id] = 1
+            elif len(inputs) == 1:
+                values[gate.id] = 0 if inputs[0] else 1
+            else:
+                raise ValueError(f"NOT gate {gate.id} requires exactly one input")
+            continue
 
-            if gate.type == "OR":
-                values[gate.id] = 1 if any(inputs) else 0
-                continue
+        if gate.type == "OR":
+            values[gate.id] = 1 if any(inputs) else 0
+            continue
 
-            if gate.type == "AND":
-                values[gate.id] = 1 if all(inputs) else 0
-                continue
+        if gate.type == "AND":
+            values[gate.id] = 1 if all(inputs) else 0
+            continue
 
-            if gate.type == "XOR":
-                values[gate.id] = 1 if sum(inputs) % 2 else 0
-                continue
+        if gate.type == "XOR":
+            values[gate.id] = 1 if sum(inputs) % 2 else 0
+            continue
 
-            if gate.type == "NAND":
-                values[gate.id] = 0 if all(inputs) else 1
-                continue
+        if gate.type == "NAND":
+            values[gate.id] = 0 if all(inputs) else 1
+            continue
 
-            if gate.type == "NOR":
-                values[gate.id] = 0 if any(inputs) else 1
-                continue
+        if gate.type == "NOR":
+            values[gate.id] = 0 if any(inputs) else 1
+            continue
 
-            if gate.type == "XNOR":
-                values[gate.id] = 0 if sum(inputs) % 2 else 1
-                continue
+        if gate.type == "XNOR":
+            values[gate.id] = 0 if sum(inputs) % 2 else 1
+            continue
 
-            if gate.type == "LAMP":
-                values[gate.id] = inputs[0] if inputs else 0
-                continue
+        if gate.type == "LAMP":
+            values[gate.id] = inputs[0] if inputs else 0
+            continue
 
-            if gate.type == "SWITCH":
-                values[gate.id] = inputs[0] if inputs else gate.default_state
-                continue
+        if gate.type == "SWITCH":
+            values[gate.id] = inputs[0] if inputs else gate.default_state
+            continue
 
-            if gate.type == "TIMER":
-                values[gate.id] = 0
-                continue
+        if gate.type == "TIMER":
+            values[gate.id] = 0
+            continue
 
-            raise ValueError(f"Unsupported gate type for simulation: {gate.type}")
+        raise ValueError(f"Unsupported gate type for simulation: {gate.type}")
 
     return _collect_output_values(values, gates)
 

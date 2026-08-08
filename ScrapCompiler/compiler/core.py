@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any, NoReturn
 
 from .analysis import *
@@ -98,14 +99,15 @@ class ScrapCompiler(ResolutionMixin, LoweringMixin, InstantiationMixin, ModulesM
     def gates_to_ir(gates: list[Gate]) -> str:
         """Render positioned gates using explicit IDs and inline type/variable comments."""
         in_gates = sorted(
-            [gate for gate in gates if gate.prefix == "IN"],
+            [gate for gate in gates if gate.prefix == "IN" and gate.type != "OBJECT"],
             key=lambda g: (g.x, g.y, g.z),
         )
         internal_gates = sorted(
-            [gate for gate in gates if gate.prefix == ""], key=lambda g: (g.x, g.y, g.z)
+            [gate for gate in gates if gate.prefix == "" and gate.type != "OBJECT"],
+            key=lambda g: (g.x, g.y, g.z),
         )
         out_gates = sorted(
-            [gate for gate in gates if gate.prefix == "OUT"],
+            [gate for gate in gates if gate.prefix == "OUT" and gate.type != "OBJECT"],
             key=lambda g: (g.x, g.y, g.z),
         )
 
@@ -156,7 +158,7 @@ class ScrapCompiler(ResolutionMixin, LoweringMixin, InstantiationMixin, ModulesM
                 gate.type,
                 *inputs,
             ]
-            if gate.type == "SWITCH" and gate.default_state:
+            if gate.type == "SWITCH" and gate.prefix == "IN" and gate.default_state:
                 parts.append(str(gate.default_state))
             if gate.type == "TIMER" and gate.delay:
                 parts.append(str(gate.delay))
@@ -182,7 +184,7 @@ class ScrapCompiler(ResolutionMixin, LoweringMixin, InstantiationMixin, ModulesM
                 gate.type,
                 *inputs,
             ]
-            if gate.type == "SWITCH" and gate.default_state:
+            if gate.type == "SWITCH" and gate.prefix == "IN" and gate.default_state:
                 parts.append(str(gate.default_state))
             if gate.type == "TIMER" and gate.delay:
                 parts.append(str(gate.delay))
@@ -199,6 +201,10 @@ class ScrapCompiler(ResolutionMixin, LoweringMixin, InstantiationMixin, ModulesM
                     )
                     seen_variables.add(gate.variable)
 
+            if gate.type == "OBJECT" and gate.annotation is not None:
+                lines.append(f"# {json.dumps(gate.annotation)}")
+                continue
+
             inputs = [str(source) for source in gate.inputs]
 
             parts = ([gate.prefix] if gate.prefix else []) + [
@@ -211,6 +217,13 @@ class ScrapCompiler(ResolutionMixin, LoweringMixin, InstantiationMixin, ModulesM
             if gate.type == "SWITCH" and gate.default_state:
                 parts.append(str(gate.default_state))
             lines.append(f"{line_id}: {' '.join(parts)}")
+
+        object_gates = [
+            gate for gate in in_gates + internal_gates + out_gates if gate.type == "OBJECT"
+        ]
+        for gate in object_gates:
+            if gate.annotation is not None:
+                lines.append(f"# {json.dumps(gate.annotation)}")
 
         return "\n".join(lines)
 

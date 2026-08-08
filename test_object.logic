@@ -1,0 +1,5 @@
+#define EXPLOSIVE = {
+    "color": "CB0A00"
+}
+
+x: new Object(EXPLOSIVE)

@@ -1,11 +1,65 @@
 from __future__ import annotations
 
+import re
 from typing import Any, TypeAlias
 
 from .stream import TextStream
 
 AstNode: TypeAlias = dict[str, Any]
 ModuleNodes: TypeAlias = dict[str, AstNode]
+
+
+def _preprocess_defines(source: str) -> tuple[str, dict[str, str]]:
+    """Expand #define directives and return the modified source."""
+    defines: dict[str, str] = {}
+    lines = source.splitlines(keepends=True)
+    result_lines: list[str] = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        stripped = line.lstrip()
+        if stripped.startswith("#define"):
+            rest = stripped[len("#define"):].strip()
+            j = 0
+            while j < len(rest) and rest[j] not in (" ", "=", "\t"):
+                j += 1
+            name = rest[:j].strip()
+            if not name:
+                i += 1
+                continue
+
+            k = j
+            while k < len(rest) and rest[k] != "=":
+                k += 1
+            if k >= len(rest):
+                i += 1
+                continue
+
+            value_text = rest[k + 1 :].strip()
+            if value_text.startswith("{"):
+                brace_count = value_text.count("{") - value_text.count("}")
+                value_lines = [value_text]
+                i += 1
+                while i < len(lines) and brace_count > 0:
+                    value_lines.append(lines[i])
+                    brace_count += lines[i].count("{") - lines[i].count("}")
+                    i += 1
+                defines[name] = "".join(value_lines)
+                continue
+
+            defines[name] = value_text
+            i += 1
+            continue
+
+        result_lines.append(line)
+        i += 1
+
+    result = "".join(result_lines)
+    for name, value in defines.items():
+        result = re.sub(r"\b" + re.escape(name) + r"\b", value, result)
+
+    return result, defines
+
 
 keywords: set[str] = {"module", "function"}
 fields: dict[str, list[str]] = {
@@ -23,6 +77,20 @@ valid_decorators: set[str] = {
     "clocked_input",
     "clocked_output",
 }
+
+
+def _consume_dotted_name(stream: TextStream) -> str:
+    """Consume a dotted identifier like ``module.field``."""
+    name = stream.consume_word()
+    if not name:
+        return ""
+    parts = [name]
+    while stream.consume_text("."):
+        part = stream.consume_word()
+        if not part:
+            break
+        parts.append(part)
+    return ".".join(parts)
 
 
 def parse_decorators(stream: TextStream) -> list[AstNode]:
@@ -57,7 +125,8 @@ def parse_decorators(stream: TextStream) -> list[AstNode]:
                 if not stream.consume_text(","):
                     stream.expect(")")
                     break
-            stream.consume_whitespace()
+
+        stream.consume_whitespace()
 
         decorators.append(
             stream.emit(
@@ -304,6 +373,16 @@ def _parse_primary(stream: TextStream) -> AstNode:
     """Parse an expression that does not begin with a unary operator."""
     _consume_trivia(stream)
 
+    if stream.consume_text('"'):
+        value = stream.consume_while(lambda char: char != '"')
+        stream.expect('"')
+        return stream.emit({"type": "string", "value": value})
+
+    if stream.consume_text("'"):
+        value = stream.consume_while(lambda char: char != "'")
+        stream.expect("'")
+        return stream.emit({"type": "string", "value": value})
+
     if stream.peek().isdigit():
         value = stream.consume_while(lambda char: char.isdigit())
         return stream.emit({"type": "int", "value": int(value)})
@@ -312,6 +391,32 @@ def _parse_primary(stream: TextStream) -> AstNode:
         expr = parse_expr(stream)
         stream.expect(")")
         return expr
+
+    if stream.consume_text("{"):
+        pairs: dict[str, AstNode] = {}
+        while stream and not stream.consume_text("}"):
+            _consume_trivia(stream)
+            key = None
+            if stream.consume_text('"'):
+                key = stream.consume_while(lambda char: char != '"')
+                stream.expect('"')
+            elif stream.consume_text("'"):
+                key = stream.consume_while(lambda char: char != "'")
+                stream.expect("'")
+            else:
+                key = stream.consume_word()
+            if not key:
+                stream.error("SyntaxError", "Object literal requires a key")
+            _consume_trivia(stream)
+            stream.expect(":")
+            _consume_trivia(stream)
+            value = parse_expr(stream)
+            pairs[key] = value
+            _consume_trivia(stream)
+            if not stream.consume_text(","):
+                stream.expect("}")
+                break
+        return stream.emit({"type": "object", "value": pairs})
 
     word = stream.consume_word()
     if not word:
@@ -487,7 +592,7 @@ def parse_statement(stream: TextStream) -> list[AstNode]:
             stream.expect(",")
 
         stream.consume_whitespace()
-        to = stream.consume_word()
+        to = parse_expr(stream)
         stream.consume_whitespace()
 
         return [stream.emit({"type": "arrow", "from": args, "to": to})]
@@ -664,7 +769,7 @@ def parse_toplevel(
             stream.expect(",")
 
         stream.consume_whitespace()
-        to = stream.consume_word()
+        to = parse_expr(stream)
         stream.consume_whitespace()
 
         return {}, {}, [stream.emit({"type": "arrow", "from": args, "to": to})]
@@ -674,6 +779,7 @@ def parse_toplevel(
 
 def parse(source: str, debug=True) -> AstNode:
     """Parse source text into the compiler AST."""
+    source, _ = _preprocess_defines(source)
     stream = TextStream(source, debug)
 
     ast = stream.emit({"modules": {}, "functions": {}, "gates": []})

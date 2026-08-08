@@ -25,8 +25,22 @@ class ModulesMixin(CompilerMixinBase):
             dec_name = decorator.get("name")
             if dec_name == "assert":
                 self._validate_assert_decorator(name, decorator, fields)
-            elif dec_name in ("ensure_timing", "pipelined", "clocked_input", "clocked_output"):
+            elif dec_name == "pipelined":
                 self._validate_timing_decorator(name, decorator)
+
+        has_clocked_input = any(
+            isinstance(d, dict) and d.get("name") == "clocked_input"
+            for d in decorators
+        )
+        has_clocked_output = any(
+            isinstance(d, dict) and d.get("name") == "clocked_output"
+            for d in decorators
+        )
+
+        if has_clocked_input or has_clocked_output:
+            fields.setdefault("inputs", []).append(
+                {"name": "clock", "type": "bit", "optional": True}
+            )
 
         inputs = self._resolve_definitions(fields.get("inputs"), {}, module)
         outputs = self._resolve_definitions(fields.get("outputs"), inputs, module)
@@ -158,18 +172,22 @@ class ModulesMixin(CompilerMixinBase):
         target = statement.get("to")
         sources = statement.get("from")
 
-        if not isinstance(target, str) or not target:
+        if not target:
             self.error("InvalidGate", "Wire statement is missing a target", statement)
 
         if not isinstance(sources, list):
             self.error("InvalidGate", "Wire statement is missing sources", statement)
 
-        target_type = symbols.get(target)
-
-        if target_type is None:
-            self.error(
-                "UnknownIdentifierError", f"Unknown wire target: {target}", statement
-            )
+        if isinstance(target, dict):
+            target_type = self.resolve_expression(target, symbols)
+        elif isinstance(target, str):
+            target_type = symbols.get(target)
+            if target_type is None:
+                self.error(
+                    "UnknownIdentifierError", f"Unknown wire target: {target}", statement
+                )
+        else:
+            self.error("InvalidGate", "Invalid wire target", statement)
 
         for source in sources:
             if not isinstance(source, dict):
@@ -231,7 +249,7 @@ class ModulesMixin(CompilerMixinBase):
                     if isinstance(value, int) and value <= 0:
                         self.error(
                             "InvalidDecoratorError",
-                            f"@pipelined requires a positive integer argument",
+                            "@pipelined requires a positive integer argument",
                             decorator,
                         )
 

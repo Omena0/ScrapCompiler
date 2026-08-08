@@ -59,6 +59,10 @@ class ResolutionMixin(CompilerMixinBase):
     ) -> ResolvedType:
         """Resolve the type of an expression within a symbol scope."""
         expression_type = expression.get("type")
+        if expression_type == "string":
+            return ResolvedType("string")
+        if expression_type == "object":
+            return ResolvedType("object")
         if expression_type == "cast":
             return self._resolve_cast(expression, symbols)
         if expression_type == "int":
@@ -212,9 +216,11 @@ class ResolutionMixin(CompilerMixinBase):
                     module = self._module_asts[resolved.name]
                     fields = module.get("fields")
                     if isinstance(fields, dict):
-                        output_defs = fields.get("outputs")
-                        if isinstance(output_defs, list):
-                            for definition in output_defs:
+                        for section in ("outputs", "inputs"):
+                            defs = fields.get(section)
+                            if not isinstance(defs, list):
+                                continue
+                            for definition in defs:
                                 if (
                                     isinstance(definition, dict)
                                     and self._definition_name(definition) == name

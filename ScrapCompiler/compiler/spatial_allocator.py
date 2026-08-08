@@ -96,6 +96,14 @@ class SpatialAllocator:
         for key, gate in self._gates.items():
             gate.x = times[key]
 
+        lamp_out_gates = [
+            gate for gate in self._gates.values() if gate.type == "LAMP" and gate.prefix == "OUT"
+        ]
+        if lamp_out_gates:
+            max_lamp_x = max(gate.x for gate in lamp_out_gates)
+            for gate in lamp_out_gates:
+                gate.x = max_lamp_x
+
         xy_groups: dict[tuple[int, int], list[Gate]] = {}
         for gate in self._gates.values():
             pos = (gate.x, gate.y)

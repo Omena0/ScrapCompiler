@@ -23,12 +23,20 @@ class LoweringMixin(CompilerMixinBase):
             self.error("InvalidGates", "Missing or invalid 'gates'", self.ast)
 
         lowered = dict(signals)
-        for statement in statements:
-            if not isinstance(statement, dict):
-                self.error("InvalidGate", "Gate statement must be an object", self.ast)
-            statement_type = statement.get("type")
-            if statement_type == "gate":
-                self._lower_assignment(
+        if top_level:
+            assignments: list[AstNode] = []
+            arrows: list[AstNode] = []
+            for statement in statements:
+                if not isinstance(statement, dict):
+                    self.error("InvalidGate", "Gate statement must be an object", self.ast)
+                statement_type = statement.get("type")
+                if statement_type == "arrow":
+                    arrows.append(statement)
+                else:
+                    assignments.append(statement)
+
+            for statement in assignments:
+                self._lower_statement(
                     statement,
                     lowered,
                     indices,
@@ -38,15 +46,64 @@ class LoweringMixin(CompilerMixinBase):
                     final_iteration,
                     top_level,
                 )
-            elif statement_type == "arrow":
-                self._lower_arrow(statement, lowered, indices, z)
-            elif statement_type == "as":
-                self._lower_dynamic(statement, lowered, indices, z, output_ports)
-            elif statement_type == "function_call":
-                self._lower_function_call(statement, lowered, indices, z)
-            else:
-                self.error("InvalidGate", "Unknown gate statement type", statement)
+            for statement in arrows:
+                self._lower_statement(
+                    statement,
+                    lowered,
+                    indices,
+                    z,
+                    output_ports,
+                    in_dynamic_loop,
+                    final_iteration,
+                    top_level,
+                )
+            return lowered
+
+        for statement in statements:
+            self._lower_statement(
+                statement,
+                lowered,
+                indices,
+                z,
+                output_ports,
+                in_dynamic_loop,
+                final_iteration,
+                top_level,
+            )
         return lowered
+
+    def _lower_statement(
+        self,
+        statement: AstNode,
+        signals: SignalTable,
+        indices: dict[str, int],
+        z: int,
+        output_ports: SignalTable,
+        in_dynamic_loop: bool,
+        final_iteration: bool,
+        top_level: bool,
+    ) -> None:
+        """Lower one statement and mutate ``signals`` in place."""
+        statement_type = statement.get("type")
+        if statement_type == "gate":
+            self._lower_assignment(
+                statement,
+                signals,
+                indices,
+                z,
+                output_ports,
+                in_dynamic_loop,
+                final_iteration,
+                top_level,
+            )
+        elif statement_type == "arrow":
+            self._lower_arrow(statement, signals, indices, z)
+        elif statement_type == "as":
+            self._lower_dynamic(statement, signals, indices, z, output_ports)
+        elif statement_type == "function_call":
+            self._lower_function_call(statement, signals, indices, z)
+        else:
+            self.error("InvalidGate", "Unknown gate statement type", statement)
 
     def _mark_output_signal(self, signal: Signal) -> None:
         """Mark every gate in a signal as an output boundary."""
@@ -102,6 +159,20 @@ class LoweringMixin(CompilerMixinBase):
     ) -> Signal:
         """Lower an expression to a signal, optionally coercing its width."""
         expression_type = expression.get("type")
+        if expression_type == "string":
+            value = expression.get("value")
+            if not isinstance(value, str):
+                self.error(
+                    "InvalidExpressionError", "Invalid string expression", expression
+                )
+            return self._constant_signal(0, width or 1, ResolvedType("string"))
+        if expression_type == "object":
+            value = expression.get("value")
+            if not isinstance(value, dict):
+                self.error(
+                    "InvalidExpressionError", "Invalid object expression", expression
+                )
+            return self._constant_signal(0, width or 1, ResolvedType("object"))
         if expression_type == "bool":
             value = expression.get("value")
             if not isinstance(value, bool):
@@ -157,17 +228,23 @@ class LoweringMixin(CompilerMixinBase):
         z: int,
     ) -> None:
         """Append wire sources to the target, supporting concatenation and width extension."""
-        target_name = statement.get("to")
+        target_expr = statement.get("to")
         sources = statement.get("from")
-        if not isinstance(target_name, str) or not isinstance(sources, list):
+        if not isinstance(sources, list):
             self.error("InvalidGate", "Invalid wire statement", statement)
-        target = signals.get(target_name)
-        if target is None:
-            self.error(
-                "UnknownIdentifierError",
-                f"Unknown wire target: {target_name}",
-                statement,
-            )
+
+        if isinstance(target_expr, dict):
+            target = self._lower_expression(target_expr, signals, indices, z, None)
+        elif isinstance(target_expr, str):
+            target = signals.get(target_expr)
+            if target is None:
+                self.error(
+                    "UnknownIdentifierError",
+                    f"Unknown wire target: {target_expr}",
+                    statement,
+                )
+        else:
+            self.error("InvalidGate", "Invalid wire target", statement)
 
         source_signals = [
             self._lower_expression(source, signals, indices, z, None)

@@ -38,8 +38,12 @@ class InstantiationMixin(CompilerMixinBase):
             return self._instantiate_switch(
                 expression, parent_signals, parent_indices, parent_z
             )
-        if name == "Button":
+        if name in ("Button", "ButtonInput"):
             return self._instantiate_button(
+                expression, parent_signals, parent_indices, parent_z
+            )
+        if name == "Object":
+            return self._instantiate_object(
                 expression, parent_signals, parent_indices, parent_z
             )
 
@@ -57,6 +61,16 @@ class InstantiationMixin(CompilerMixinBase):
         ):
             self.error("InvalidModule", f"Invalid module {name} fields", module)
 
+        decorators = module.get("decorators", [])
+        has_clocked_input = any(
+            isinstance(d, dict) and d.get("name") == "clocked_input"
+            for d in decorators
+        )
+        has_clocked_output = any(
+            isinstance(d, dict) and d.get("name") == "clocked_output"
+            for d in decorators
+        )
+
         positional, named = self._bind_call_arguments(expression, input_defs)
         generic_width = self._generic_width(
             expression, input_defs, output_defs, parent_signals, positional, named
@@ -64,12 +78,14 @@ class InstantiationMixin(CompilerMixinBase):
         signals: SignalTable = {}
         output_ports: SignalTable = {}
 
+        input_names: set[str] = set()
         for position, definition in enumerate(input_defs):
             if not isinstance(definition, dict):
                 self.error(
                     "InvalidDefinition", "Input definition must be an object", module
                 )
             field_name = self._definition_name(definition)
+            input_names.add(field_name)
             input_type = self._resolve_definition_type(
                 definition, signals, parent_indices, generic_width
             )
@@ -96,6 +112,32 @@ class InstantiationMixin(CompilerMixinBase):
                     field_width,
                 )
             signals[field_name] = self._input_ports(source, input_type, field_name)
+
+        if has_clocked_input:
+            clock_signal = signals.get("clock")
+            if clock_signal and clock_signal.bits:
+                clock_bit = clock_signal.bits[0]
+                and_outputs = []
+                bit_index = 0
+                for field_name in input_names:
+                    if field_name == "clock":
+                        continue
+                    signal = signals[field_name]
+                    gated_bits = []
+                    for bit in signal.bits:
+                        and_id = self._allocator.create(
+                            "AND", [bit, clock_bit], bit_index, "", value_type="bit"
+                        )
+                        gated_bits.append(and_id)
+                        bit_index += 1
+                    signals[field_name] = Signal(tuple(gated_bits), signal.value_type)
+                    and_outputs.extend(gated_bits)
+
+                if and_outputs:
+                    or_id = self._allocator.create(
+                        "OR", and_outputs, 0, "", value_type="bit"
+                    )
+                    signals["clock_gate"] = Signal((or_id,), value_type=ResolvedType("bit"))
 
         for definition in output_defs:
             if not isinstance(definition, dict):
@@ -129,6 +171,24 @@ class InstantiationMixin(CompilerMixinBase):
                 lowered[field_name].bits
             ):
                 output_ports[field_name] = lowered[field_name]
+
+        if has_clocked_output:
+            clock_signal = signals.get("clock")
+            if clock_signal and clock_signal.bits:
+                clock_bit = clock_signal.bits[0]
+                for field_name, port in list(output_ports.items()):
+                    gated_bits = []
+                    for bit in port.bits:
+                        switch_id = self._allocator.create(
+                            "SWITCH", [bit], 0, "", value_type="bit"
+                        )
+                        self._allocator.append_inputs(switch_id, [clock_bit])
+                        gated_bits.append(switch_id)
+                    gated_port = Signal(tuple(gated_bits), port.value_type)
+                    output_ports[field_name] = gated_port
+                    signals[field_name] = gated_port
+                primary = self._primary_output(output_defs, output_ports, generic_width, module)
+
         if selected_output is not None:
             if selected_output not in output_ports:
                 self.error(
@@ -140,11 +200,16 @@ class InstantiationMixin(CompilerMixinBase):
         else:
             result = primary
 
+        module_ports = dict(output_ports)
+        for field_name in input_names:
+            if field_name in signals:
+                module_ports[field_name] = signals[field_name]
+
         return Signal(
             bits=result.bits,
             value_type=result.value_type,
             is_input=result.is_input,
-            module_outputs=dict(output_ports),
+            module_outputs=module_ports,
         )
 
     def _input_ports(
@@ -396,6 +461,28 @@ class InstantiationMixin(CompilerMixinBase):
             value_type=signal.value_type,
             module_outputs={"bit": signal},
         )
+
+    def _instantiate_object(
+        self,
+        expression: AstNode,
+        parent_signals: SignalTable,
+        parent_indices: dict[str, int],
+        parent_z: int,
+    ) -> Signal:
+        """Create a dummy gate representing an object literal annotation."""
+        arguments = expression.get("args")
+        object_value = None
+        if isinstance(arguments, list) and len(arguments) > 0:
+            arg = arguments[0]
+            if isinstance(arg, dict) and arg.get("type") == "object":
+                object_value = arg.get("value")
+
+        gate_id = self._allocator.create("OBJECT", [], 0, "", value_type="object")
+        if object_value is not None:
+            self._allocator._gates[gate_id].annotation = object_value
+
+        signal = Signal((gate_id,), value_type=ResolvedType("object"))
+        return Signal(bits=signal.bits, value_type=signal.value_type, module_outputs={})
 
 
 __all__ = ["InstantiationMixin"]

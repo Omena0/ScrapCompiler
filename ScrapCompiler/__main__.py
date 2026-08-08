@@ -17,12 +17,10 @@ def compile(source_file):
 
     return ScrapCompiler.gates_to_ir(gates)
 
-
 def sim(source_file, input_values):
     IR = compile(source_file)
 
     return simulate_ir(IR, input_values)
-
 
 def _prompt_for_int_inputs(ir: str, provided_values: list[int]) -> list[int]:
     """Prompt the user for IntInput values if not enough were provided.
@@ -34,7 +32,13 @@ def _prompt_for_int_inputs(ir: str, provided_values: list[int]) -> list[int]:
     Returns:
         Complete list of input values including user prompts.
     """
-    from .simulation import parse_ir
+    from .simulation import (
+        _build_input_groups,
+        _type_width,
+        extract_type_comments,
+        extract_variable_comments,
+        parse_ir,
+    )
 
     gates = parse_ir(ir)
     int_inputs = [g for g in gates if g.prefix == "IN" and g.type == "SWITCH"]
@@ -42,9 +46,22 @@ def _prompt_for_int_inputs(ir: str, provided_values: list[int]) -> list[int]:
     if not int_inputs:
         return provided_values
 
+    type_groups = extract_type_comments(ir)
+    variable_groups = extract_variable_comments(ir)
+    _, ordered_groups = _build_input_groups(gates, type_groups, variable_groups)
+
+    if not ordered_groups:
+        return provided_values
+
     values = list(provided_values)
 
-    for gate in int_inputs[len(values) :]:
+    for group_ids, type_name in ordered_groups[len(values) :]:
+        width = _type_width(type_name)
+        if width == 1:
+            values.append(0)
+            continue
+
+        gate = next(g for g in int_inputs if g.id == group_ids[0])
         prompt = f"Enter value for IntInput {gate.id} (default {gate.default_state}): "
         user_input = input(prompt).strip()
         if user_input:
@@ -57,7 +74,6 @@ def _prompt_for_int_inputs(ir: str, provided_values: list[int]) -> list[int]:
             values.append(gate.default_state)
 
     return values
-
 
 if __name__ == "__main__":
     option = sys.argv[1]
@@ -90,7 +106,7 @@ if __name__ == "__main__":
             print(f"Took {(time.time()-t1)*1000:.4f} ms.")
 
             with open("out.json", "w") as f:
-                json.dump(blueprint, f, indent=2)
+                json.dump(blueprint, f, indent=2 if '-d' in sys.argv else None)
 
         case "sim":
             IR = compile(sys.argv[2])

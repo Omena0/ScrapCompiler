@@ -1,5 +1,7 @@
 
+
 // Dynamic adder module
+@clocked_input
 module Adder() {
     inputs {
         dynamic a
@@ -40,13 +42,38 @@ module Adder() {
 }
 
 // 2 u8 inputs
-x: new IntInput(u8)
-y: new IntInput(u8)
+x: new IntInput(u64)
+y: new IntInput(u64)
+clock: new ButtonInput()
+clock -> adder.clock
 
 // Add them
 adder: Adder(x, y)
 
 // Display result
-out: new IntDisplay(u8)
+out: new IntDisplay(u64)
 adder.sum -> out
 
+// Carry out
+carry: new IntDisplay(u1)
+adder.carry_out -> carry
+
+#define EXPLOSIVE = {
+    "color": "CB0A00",
+    "controller": {
+        "active": false,
+        "controllers": null,
+        "id": 15854,
+        "joints": null
+    },
+    "pos": {
+        "x": 10,
+        "y": -10,
+        "z": 3
+    },
+    "shapeId": "24001201-40dd-4950-b99f-17d878a9e07b",
+    "xaxis": 1,
+    "zaxis": -2
+}
+
+explosive: new Object(EXPLOSIVE)
