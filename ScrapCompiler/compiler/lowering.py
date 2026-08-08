@@ -96,10 +96,23 @@ class LoweringMixin(CompilerMixinBase):
                 final_iteration,
                 top_level,
             )
+        elif statement_type == "indexed_gate":
+            self._lower_indexed_gate(
+                statement,
+                signals,
+                indices,
+                z,
+                output_ports,
+                in_dynamic_loop,
+                final_iteration,
+                top_level,
+            )
         elif statement_type == "arrow":
             self._lower_arrow(statement, signals, indices, z)
         elif statement_type == "as":
             self._lower_dynamic(statement, signals, indices, z, output_ports)
+        elif statement_type == "for_loop":
+            self._lower_for_loop(statement, signals, indices, z, output_ports)
         elif statement_type == "function_call":
             self._lower_function_call(statement, signals, indices, z)
         else:
@@ -139,6 +152,12 @@ class LoweringMixin(CompilerMixinBase):
             signals[name] = self._lower_new(
                 value, signals, indices, z, target, statement
             )
+        elif value.get("type") == "list":
+            self._compile_time_values[name] = [
+                self._ast_value_to_python(element) for element in value.get("value", [])
+            ]
+            dummy_id = self._allocator.create("LIST", [], 0, "", value_type="list")
+            signals[name] = Signal((dummy_id,), value_type=ResolvedType("list"))
         else:
             signals[name] = self._lower_expression(value, signals, indices, z, None)
 
@@ -147,6 +166,56 @@ class LoweringMixin(CompilerMixinBase):
 
         if top_level and name == "out":
             for gate_id in signals[name].bits:
+                self._allocator._gates[gate_id].prefix = "OUT"
+
+    def _lower_indexed_gate(
+        self,
+        statement: AstNode,
+        signals: SignalTable,
+        indices: dict[str, int],
+        z: int,
+        output_ports: SignalTable,
+        in_dynamic_loop: bool,
+        final_iteration: bool,
+        top_level: bool = False,
+    ) -> None:
+        """Lower an indexed gate assignment like x[i]: expr."""
+        name = statement.get("name")
+        index_expr = statement.get("index")
+        value = statement.get("value")
+        if (
+            not isinstance(name, str)
+            or not isinstance(index_expr, dict)
+            or not isinstance(value, dict)
+        ):
+            self.error("InvalidGate", "Invalid indexed gate assignment", statement)
+
+        target = None
+        if name in output_ports:
+            target = (
+                output_ports[name] if not in_dynamic_loop or final_iteration else None
+            )
+        elif name in signals:
+            target = signals[name]
+
+        position = self._evaluate_integer(index_expr, indices)
+        lowered = self._lower_expression(value, signals, indices, z, None)
+        if not 0 <= position < len(lowered.bits):
+            self.error(
+                "IndexError",
+                f"Index {position} is outside a {len(lowered.bits)}-bit value",
+                statement,
+            )
+
+        bit = lowered.bits[position]
+        signal = Signal((bit,), value_type=lowered.value_type, is_input=lowered.is_input)
+        signals[name] = signal
+
+        for gate_id in signal.bits:
+            self._allocator.set_variable(gate_id, name)
+
+        if top_level and name == "out":
+            for gate_id in signal.bits:
                 self._allocator._gates[gate_id].prefix = "OUT"
 
     def _lower_expression(
@@ -173,6 +242,8 @@ class LoweringMixin(CompilerMixinBase):
                     "InvalidExpressionError", "Invalid object expression", expression
                 )
             return self._constant_signal(0, width or 1, ResolvedType("object"))
+        if expression_type == "list":
+            return self._constant_signal(0, width or 1, ResolvedType("list"))
         if expression_type == "bool":
             value = expression.get("value")
             if not isinstance(value, bool):
@@ -357,6 +428,50 @@ class LoweringMixin(CompilerMixinBase):
                         self._allocator._gates[bit].y = index
             signals.update(updated)
 
+    def _lower_for_loop(
+        self,
+        statement: AstNode,
+        signals: SignalTable,
+        indices: dict[str, int],
+        z: int,
+        output_ports: SignalTable,
+    ) -> None:
+        """Unroll a for loop for each iteration from 0 to count-1."""
+        variable = statement.get("variable")
+        count_expr = statement.get("count")
+        body = statement.get("body")
+        if (
+            not isinstance(variable, str)
+            or not variable
+            or not isinstance(count_expr, dict)
+            or not isinstance(body, list)
+        ):
+            self.error("InvalidGate", "Invalid for loop", statement)
+
+        count = self._evaluate_integer(count_expr, indices)
+        if count < 0:
+            self.error("ValueError", "For loop count cannot be negative", statement)
+
+        loop_signals = dict(signals)
+        for iteration in range(count):
+            loop_signals[variable] = Signal(
+                (iteration,),
+                value_type=ResolvedType("int"),
+            )
+            updated = self._lower_statements(
+                body,
+                loop_signals,
+                indices,
+                z,
+                output_ports,
+                False,
+                False,
+                False,
+            )
+            loop_signals.update(updated)
+
+        signals.update(loop_signals)
+
     def _lower_new(
         self,
         expression: AstNode,
@@ -510,6 +625,35 @@ class LoweringMixin(CompilerMixinBase):
         index = expression.get("index")
         if not isinstance(value, dict) or not isinstance(index, dict):
             self.error("InvalidExpressionError", "Invalid index expression", expression)
+
+        if value.get("type") == "ident":
+            ident_name = value.get("name")
+            if isinstance(ident_name, str) and ident_name in self._compile_time_values:
+                position = self._evaluate_integer(index, indices)
+                list_elements = self._compile_time_values[ident_name]
+                if not 0 <= position < len(list_elements):
+                    self.error(
+                        "IndexError",
+                        f"Index {position} is outside a {len(list_elements)}-element list",
+                        expression,
+                    )
+                element = list_elements[position]
+                if isinstance(element, int):
+                    return self._constant_signal(
+                        element, max(element.bit_length(), 1), ResolvedType("dynamic")
+                    )
+                if isinstance(element, dict) and isinstance(element.get("bits"), tuple):
+                    return Signal(
+                        element["bits"],
+                        value_type=element.get("value_type", ResolvedType("bit")),
+                        is_input=element.get("is_input", False),
+                    )
+                self.error(
+                    "InvalidExpressionError",
+                    f"Cannot index list element of type {type(element).__name__}",
+                    expression,
+                )
+
         signal = self._lower_expression(value, signals, indices, z, None)
         position = self._evaluate_integer(index, indices)
         if not 0 <= position < len(signal.bits):

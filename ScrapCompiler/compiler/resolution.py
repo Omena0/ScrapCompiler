@@ -63,6 +63,8 @@ class ResolutionMixin(CompilerMixinBase):
             return ResolvedType("string")
         if expression_type == "object":
             return ResolvedType("object")
+        if expression_type == "list":
+            return ResolvedType("list")
         if expression_type == "cast":
             return self._resolve_cast(expression, symbols)
         if expression_type == "int":

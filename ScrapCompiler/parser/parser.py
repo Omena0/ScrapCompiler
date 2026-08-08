@@ -418,6 +418,17 @@ def _parse_primary(stream: TextStream) -> AstNode:
                 break
         return stream.emit({"type": "object", "value": pairs})
 
+    if stream.consume_text("["):
+        elements: list[AstNode] = []
+        while stream and not stream.consume_text("]"):
+            _consume_trivia(stream)
+            elements.append(parse_expr(stream))
+            _consume_trivia(stream)
+            if not stream.consume_text(","):
+                stream.expect("]")
+                break
+        return stream.emit({"type": "list", "value": elements})
+
     word = stream.consume_word()
     if not word:
         stream.error("SyntaxError", "Expected expression")
@@ -525,6 +536,52 @@ def consume_as_names(stream: TextStream) -> list[str]:
     return [name] if name else []
 
 
+def parse_for_loop(stream: TextStream) -> AstNode:
+    """Parse a for loop: for var in range(n): body or for var in range(n) { body }."""
+    stream.consume_whitespace()
+    variable = stream.consume_word()
+    if not variable:
+        stream.error("SyntaxError", "For loop requires a variable name")
+
+    stream.consume_whitespace()
+    if not stream.consume_text("in"):
+        stream.error("SyntaxError", "For loop requires 'in' keyword")
+
+    stream.consume_whitespace()
+    if not stream.consume_text("range"):
+        stream.error("SyntaxError", "For loop requires 'range(...)'")
+
+    stream.expect("(")
+    count = parse_expr(stream)
+    stream.expect(")")
+    stream.consume_whitespace()
+
+    body: list[AstNode] = []
+    if stream.consume_text(":"):
+        stream.consume_whitespace()
+        if stream.consume_text("{"):
+            while stream and not stream.match("}"):
+                body.extend(parse_statement(stream))
+            stream.expect("}")
+        else:
+            body.append(parse_statement(stream)[0])
+    elif stream.consume_text("{"):
+        while stream and not stream.match("}"):
+            body.extend(parse_statement(stream))
+        stream.expect("}")
+    else:
+        stream.error("SyntaxError", "For loop body must be delimited by ':' or '{'")
+
+    return stream.emit(
+        {
+            "type": "for_loop",
+            "variable": variable,
+            "count": count,
+            "body": body,
+        }
+    )
+
+
 def parse_statement(stream: TextStream) -> list[AstNode]:
     """Parse one statement from a module gate block."""
     # We have something like
@@ -539,8 +596,34 @@ def parse_statement(stream: TextStream) -> list[AstNode]:
 
     word = stream.consume_word()
 
+    if word == "for":
+        return [parse_for_loop(stream)]
+
     # Is identifier
     if stream.match(":"):
+        return [parse_ident(word, stream)]
+
+    index_expr = None
+    if stream.consume_text("["):
+        index_expr = parse_expr(stream)
+        stream.expect("]")
+        stream.consume_whitespace()
+
+    if stream.match(":"):
+        stream.expect(":")
+        stream.consume_whitespace()
+        if index_expr is not None:
+            expr = parse_expr(stream)
+            return [
+                stream.emit(
+                    {
+                        "type": "indexed_gate",
+                        "name": word,
+                        "index": index_expr,
+                        "value": expr,
+                    }
+                )
+            ]
         return [parse_ident(word, stream)]
 
     elif stream.match("("):
@@ -747,6 +830,9 @@ def parse_toplevel(
         decorators = parse_decorators(stream)
 
     word = stream.consume_word()
+
+    if word == "for":
+        return {}, {}, [parse_for_loop(stream)]
 
     if word in keywords:
         m, f, g = parse_keyword(word, stream, decorators)

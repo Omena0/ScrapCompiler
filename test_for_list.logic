@@ -1,0 +1,9 @@
+values: [1, 2, 3, 4]
+
+for i in range(4):
+    x[i]: values[i]
+
+for i in range(3):
+    y[i]: new Xor()
+
+out: new IntDisplay(u4)

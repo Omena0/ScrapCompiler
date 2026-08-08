@@ -29,6 +29,7 @@ class ScrapCompiler(ResolutionMixin, LoweringMixin, InstantiationMixin, ModulesM
         self._functions: dict[str, AstNode] = {}
         self._allocator: SpatialAllocator = SpatialAllocator()
         self._literal_widths: dict[str, int] = {}
+        self._compile_time_values: dict[str, list[object]] = {}
         self._skip_assertions = False
 
     def error(self, name: str, text: str, node: AstNode | None = None) -> NoReturn:
@@ -76,7 +77,7 @@ class ScrapCompiler(ResolutionMixin, LoweringMixin, InstantiationMixin, ModulesM
 
         self._module_asts = modules
         self.compile_modules(modules, functions)
-        self.variables = self._resolve_statements(self.ast.get("gates"), {}, self.ast)
+        self.variables = self._resolve_statements(self.ast.get("gates"), {}, self.ast, top_level=True)
 
         self._allocator = SpatialAllocator(compact=not self.debug)
 
@@ -99,15 +100,14 @@ class ScrapCompiler(ResolutionMixin, LoweringMixin, InstantiationMixin, ModulesM
     def gates_to_ir(gates: list[Gate]) -> str:
         """Render positioned gates using explicit IDs and inline type/variable comments."""
         in_gates = sorted(
-            [gate for gate in gates if gate.prefix == "IN" and gate.type != "OBJECT"],
+            [gate for gate in gates if gate.prefix == "IN"],
             key=lambda g: (g.x, g.y, g.z),
         )
         internal_gates = sorted(
-            [gate for gate in gates if gate.prefix == "" and gate.type != "OBJECT"],
-            key=lambda g: (g.x, g.y, g.z),
+            [gate for gate in gates if gate.prefix == ""], key=lambda g: (g.x, g.y, g.z)
         )
         out_gates = sorted(
-            [gate for gate in gates if gate.prefix == "OUT" and gate.type != "OBJECT"],
+            [gate for gate in gates if gate.prefix == "OUT"],
             key=lambda g: (g.x, g.y, g.z),
         )
 
@@ -149,6 +149,11 @@ class ScrapCompiler(ResolutionMixin, LoweringMixin, InstantiationMixin, ModulesM
                     )
                     seen_variables.add(gate.variable)
 
+            if gate.type == "OBJECT" and gate.annotation is not None:
+                python_value = ScrapCompiler._ast_value_to_python(gate.annotation)
+                lines.append(f"# {json.dumps(python_value)}")
+                continue
+
             inputs = [str(source) for source in gate.inputs]
 
             parts = ([gate.prefix] if gate.prefix else []) + [
@@ -174,6 +179,11 @@ class ScrapCompiler(ResolutionMixin, LoweringMixin, InstantiationMixin, ModulesM
                         f"# {gate.variable}: {ScrapCompiler._format_id_ranges(ids)}"
                     )
                     seen_variables.add(gate.variable)
+
+            if gate.type == "OBJECT" and gate.annotation is not None:
+                python_value = ScrapCompiler._ast_value_to_python(gate.annotation)
+                lines.append(f"# {json.dumps(python_value)}")
+                continue
 
             inputs = [str(source) for source in gate.inputs]
 
@@ -202,7 +212,8 @@ class ScrapCompiler(ResolutionMixin, LoweringMixin, InstantiationMixin, ModulesM
                     seen_variables.add(gate.variable)
 
             if gate.type == "OBJECT" and gate.annotation is not None:
-                lines.append(f"# {json.dumps(gate.annotation)}")
+                python_value = ScrapCompiler._ast_value_to_python(gate.annotation)
+                lines.append(f"# {json.dumps(python_value)}")
                 continue
 
             inputs = [str(source) for source in gate.inputs]
@@ -217,13 +228,6 @@ class ScrapCompiler(ResolutionMixin, LoweringMixin, InstantiationMixin, ModulesM
             if gate.type == "SWITCH" and gate.default_state:
                 parts.append(str(gate.default_state))
             lines.append(f"{line_id}: {' '.join(parts)}")
-
-        object_gates = [
-            gate for gate in in_gates + internal_gates + out_gates if gate.type == "OBJECT"
-        ]
-        for gate in object_gates:
-            if gate.annotation is not None:
-                lines.append(f"# {json.dumps(gate.annotation)}")
 
         return "\n".join(lines)
 
@@ -246,6 +250,59 @@ class ScrapCompiler(ResolutionMixin, LoweringMixin, InstantiationMixin, ModulesM
 
         ranges.append(str(start) if start == prev else f"{start}-{prev}")
         return ",".join(ranges)
+
+    @staticmethod
+    def _ast_value_to_python(value: object) -> object:
+        """Convert an AST node or literal to a plain Python value for JSON output."""
+        if isinstance(value, dict):
+            if "type" not in value:
+                return {
+                    key: ScrapCompiler._ast_value_to_python(val)
+                    for key, val in value.items()
+                }
+            node_type = value.get("type")
+            if node_type == "int":
+                return value.get("value", 0)
+            if node_type == "string":
+                return value.get("value", "")
+            if node_type == "bool":
+                return value.get("value", False)
+            if node_type == "object":
+                result = {}
+                for key, val in value.get("value", {}).items():
+                    result[key] = ScrapCompiler._ast_value_to_python(val)
+                return result
+            if node_type == "ident":
+                return value.get("name", "")
+            if node_type == "unary":
+                op = value.get("op")
+                operand = ScrapCompiler._ast_value_to_python(value.get("value"))
+                if op == "-" and isinstance(operand, (int, float)):
+                    return -operand
+                if op == "!" and isinstance(operand, bool):
+                    return not operand
+                if op == "~" and isinstance(operand, int):
+                    return ~operand
+                return operand
+            if node_type == "binary":
+                op = value.get("op")
+                left = ScrapCompiler._ast_value_to_python(value.get("left"))
+                right = ScrapCompiler._ast_value_to_python(value.get("right"))
+                if op == "+" and isinstance(left, (int, float)) and isinstance(right, (int, float)):
+                    return left + right
+                if op == "-" and isinstance(left, (int, float)) and isinstance(right, (int, float)):
+                    return left - right
+                if op == "*" and isinstance(left, (int, float)) and isinstance(right, (int, float)):
+                    return left * right
+                if op == "/" and isinstance(left, (int, float)) and isinstance(right, (int, float)) and right != 0:
+                    return left // right
+                if op == "%" and isinstance(left, (int, float)) and isinstance(right, (int, float)) and right != 0:
+                    return left % right
+                return value
+            return value
+        if isinstance(value, list):
+            return [ScrapCompiler._ast_value_to_python(item) for item in value]
+        return value
 
     def analyze(self) -> dict[str, Any]:
         """Run full analysis on compiled gates."""

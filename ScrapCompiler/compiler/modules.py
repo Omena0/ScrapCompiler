@@ -122,27 +122,120 @@ class ModulesMixin(CompilerMixinBase):
         statements: object,
         symbols: SymbolTable,
         node: AstNode,
+        top_level: bool = False,
     ) -> SymbolTable:
         """Resolve gate statements and enforce type-safe assignments and wires."""
         if not isinstance(statements, list):
             self.error("InvalidGates", "Missing or invalid 'gates'", node)
 
         resolved = dict(symbols)
+        if top_level:
+            assignments: list[AstNode] = []
+            arrows: list[AstNode] = []
+            for statement in statements:
+                if not isinstance(statement, dict):
+                    self.error("InvalidGate", "Gate statement must be an object", node)
+                statement_type = statement.get("type")
+                if statement_type == "arrow":
+                    arrows.append(statement)
+                else:
+                    assignments.append(statement)
+
+            for statement in assignments:
+                self._resolve_statement(statement, resolved, node)
+            for statement in arrows:
+                self._resolve_statement(statement, resolved, node)
+            return resolved
+
         for statement in statements:
-            if not isinstance(statement, dict):
-                self.error("InvalidGate", "Gate statement must be an object", node)
-            statement_type = statement.get("type")
-            if statement_type == "gate":
-                self._resolve_assignment(statement, resolved)
-            elif statement_type == "arrow":
-                self._resolve_arrow(statement, resolved)
-            elif statement_type == "as":
-                self._resolve_loop(statement, resolved)
-            elif statement_type == "function_call":
-                self._resolve_function_call(statement, resolved)
-            else:
-                self.error("InvalidGate", "Unknown gate statement type", statement)
+            self._resolve_statement(statement, resolved, node)
         return resolved
+
+    def _resolve_statement(
+        self,
+        statement: AstNode,
+        symbols: SymbolTable,
+        node: AstNode,
+    ) -> None:
+        """Resolve one gate statement and mutate ``symbols`` in place."""
+        statement_type = statement.get("type")
+        if statement_type == "gate":
+            self._resolve_assignment(statement, symbols)
+        elif statement_type == "indexed_gate":
+            self._resolve_indexed_gate(statement, symbols)
+        elif statement_type == "arrow":
+            self._resolve_arrow(statement, symbols)
+        elif statement_type == "as":
+            self._resolve_loop(statement, symbols)
+        elif statement_type == "for_loop":
+            self._resolve_for_loop(statement, symbols)
+        elif statement_type == "function_call":
+            self._resolve_function_call(statement, symbols)
+        else:
+            self.error("InvalidGate", "Unknown gate statement type", statement)
+
+    def _resolve_indexed_gate(
+        self,
+        statement: AstNode,
+        symbols: SymbolTable,
+    ) -> None:
+        """Resolve an indexed gate assignment."""
+        name = statement.get("name")
+        index = statement.get("index")
+        value = statement.get("value")
+        if not isinstance(name, str) or not name:
+            self.error("InvalidGate", "Indexed gate assignment is missing a name", statement)
+        if not isinstance(index, dict) or not isinstance(value, dict):
+            self.error("InvalidGate", "Invalid indexed gate assignment", statement)
+
+        index_type = self.resolve_expression(index, symbols)
+        if not self._is_integer_type(index_type):
+            self.error(
+                "TypeMismatchError",
+                f"Index must be an integer, got {self._format_type(index_type)}",
+                statement,
+            )
+
+        value_type = self.resolve_expression(value, symbols)
+        current_type = symbols.get(name)
+        if current_type is not None and not self._is_assignable(
+            current_type, value_type
+        ):
+            self.error(
+                "TypeMismatchError",
+                f"Cannot assign {self._format_type(value_type)} to {self._format_type(current_type)}",
+                statement,
+            )
+        symbols[name] = current_type or value_type
+
+    def _resolve_for_loop(
+        self,
+        statement: AstNode,
+        symbols: SymbolTable,
+    ) -> None:
+        """Resolve a for loop by adding the loop variable and resolving the body."""
+        variable = statement.get("variable")
+        count = statement.get("count")
+        body = statement.get("gates") or statement.get("body")
+
+        if not isinstance(variable, str) or not variable:
+            self.error("InvalidGate", "For loop requires a variable name", statement)
+        if not isinstance(count, dict):
+            self.error("InvalidGate", "For loop requires a count expression", statement)
+        if not isinstance(body, list):
+            self.error("InvalidGate", "For loop requires a body", statement)
+
+        resolved_count = self.resolve_expression(count, symbols)
+        if not self._is_integer_type(resolved_count):
+            self.error(
+                "TypeMismatchError",
+                f"For loop count must be an integer, got {self._format_type(resolved_count)}",
+                statement,
+            )
+
+        loop_symbols = dict(symbols)
+        loop_symbols[variable] = ResolvedType("int")
+        self._resolve_statements(body, loop_symbols, statement)
 
     def _resolve_assignment(self, statement: AstNode, symbols: SymbolTable) -> None:
         """Resolve a gate assignment and bind or validate its target type."""
