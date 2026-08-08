@@ -5,14 +5,16 @@ import { CompletionProvider } from "./completionProvider";
 import { DiagnosticsProvider } from "./diagnosticsProvider";
 
 export function activate(context: vscode.ExtensionContext) {
-  const client = new LogicClient();
   const outputChannel = vscode.window.createOutputChannel("Scrap Logic");
 
   context.subscriptions.push(outputChannel);
 
-  const hoverProvider = new HoverProvider(client);
-  const completionProvider = new CompletionProvider(client);
-  const diagnosticsProvider = new DiagnosticsProvider(client);
+  outputChannel.appendLine("[extension] activating Scrap Logic extension...");
+
+  const client = new LogicClient(outputChannel);
+  const hoverProvider = new HoverProvider(client, outputChannel);
+  const completionProvider = new CompletionProvider(client, outputChannel);
+  const diagnosticsProvider = new DiagnosticsProvider(client, outputChannel);
 
   context.subscriptions.push(
     vscode.languages.registerHoverProvider("logic", hoverProvider),
@@ -45,10 +47,13 @@ export function activate(context: vscode.ExtensionContext) {
 
       outputChannel.clear();
       outputChannel.show(true);
+      outputChannel.appendLine(
+        `[compile] compiling ${editor.document.fileName}...`,
+      );
 
       try {
         const ir = await client.compile(editor.document.fileName);
-        outputChannel.appendLine("Compilation successful");
+        outputChannel.appendLine("[compile] compilation successful");
         const outputUri = editor.document.uri.with({
           path: editor.document.uri.path + ".ir",
         });
@@ -61,7 +66,7 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.window.showInformationMessage("Compilation successful");
       } catch (e: any) {
         const message = e.message || "Compilation failed";
-        outputChannel.appendLine(`Error: ${message}`);
+        outputChannel.appendLine(`[compile] error: ${message}`);
         vscode.window.showErrorMessage(`Compilation failed: ${message}`);
       }
     },

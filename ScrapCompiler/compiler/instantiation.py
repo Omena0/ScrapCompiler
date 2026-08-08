@@ -411,13 +411,18 @@ class InstantiationMixin(CompilerMixinBase):
         """Create a single LAMP gate."""
         arguments = expression.get("args")
         input_signal = None
+
         if isinstance(arguments, list) and len(arguments) > 0:
             input_signal = self._lower_expression(
                 arguments[0], parent_signals, parent_indices, parent_z, 1
             )
-        bit = input_signal.bits[0] if input_signal else 0
-        gate_id = self._allocator.create("LAMP", [bit], 0, "OUT", value_type="bit")
+
+        inputs = [input_signal.bits[0]] if input_signal else []
+
+        gate_id = self._allocator.create("LAMP", inputs, 0, "OUT", value_type="bit")
+
         signal = Signal((gate_id,), value_type=ResolvedType("bit"))
+
         return Signal(bits=signal.bits, value_type=signal.value_type, module_outputs={})
 
     def _instantiate_switch(

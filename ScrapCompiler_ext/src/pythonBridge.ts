@@ -1,3 +1,4 @@
+import * as vscode from "vscode";
 import { spawn } from "child_process";
 import * as path from "path";
 import * as fs from "fs";
@@ -14,17 +15,21 @@ export class PythonBridge {
   private scriptPath: string;
   private cache: Map<string, { data: any; timestamp: number }> = new Map();
   private readonly CACHE_TTL = 5000;
+  private outputChannel: vscode.OutputChannel;
 
-  constructor() {
+  constructor(outputChannel: vscode.OutputChannel) {
     this.scriptPath = path.join(__dirname, "..", "scripts", "analyze.py");
+    this.outputChannel = outputChannel;
   }
 
   public async analyze(filePath: string): Promise<any> {
     const cached = this.cache.get(filePath);
     if (cached && Date.now() - cached.timestamp < this.CACHE_TTL) {
+      this.outputChannel.appendLine(`[bridge] cache hit for ${filePath}`);
       return cached.data;
     }
 
+    this.outputChannel.appendLine(`[bridge] analyzing ${filePath}...`);
     const result = await this.runAnalyzer(filePath);
     this.cache.set(filePath, { data: result, timestamp: Date.now() });
     return result;
@@ -47,10 +52,15 @@ export class PythonBridge {
     return new Promise((resolve, reject) => {
       const python = this.resolvePython();
       if (!fs.existsSync(this.scriptPath)) {
-        reject(new Error(`Analyzer script not found: ${this.scriptPath}`));
+        const err = new Error(`Analyzer script not found: ${this.scriptPath}`);
+        this.outputChannel.appendLine(`[bridge] ${err.message}`);
+        reject(err);
         return;
       }
 
+      this.outputChannel.appendLine(
+        `[bridge] running: ${python} ${this.scriptPath} ${filePath} ${args.join(" ")}`,
+      );
       const proc = spawn(python, [this.scriptPath, filePath, ...args]);
       let stdout = "";
       let stderr = "";
@@ -61,23 +71,37 @@ export class PythonBridge {
 
       proc.stderr.on("data", (data: Buffer) => {
         stderr += data.toString();
+        this.outputChannel.appendLine(`[bridge] stderr: ${data.toString()}`);
       });
 
       proc.on("close", (code: number | null) => {
         if (code !== 0) {
-          reject(new Error(stderr || `Script exited with code ${code}`));
+          const err = new Error(stderr || `Script exited with code ${code}`);
+          this.outputChannel.appendLine(
+            `[bridge] script failed: ${err.message}`,
+          );
+          reject(err);
           return;
         }
 
+        this.outputChannel.appendLine(
+          `[bridge] script succeeded, stdout length: ${stdout.length}`,
+        );
         try {
           const data = JSON.parse(stdout);
           resolve(data);
         } catch (e) {
+          this.outputChannel.appendLine(
+            `[bridge] stdout was not JSON, returning raw text`,
+          );
           resolve(stdout);
         }
       });
 
       proc.on("error", (err: Error) => {
+        this.outputChannel.appendLine(
+          `[bridge] failed to start Python: ${err.message}`,
+        );
         reject(new Error(`Failed to start Python: ${err.message}`));
       });
     });
@@ -97,13 +121,18 @@ export class PythonBridge {
       );
 
       if (!fs.existsSync(visualizerPath)) {
-        reject(new Error(`Visualizer script not found: ${visualizerPath}`));
+        const err = new Error(`Visualizer script not found: ${visualizerPath}`);
+        this.outputChannel.appendLine(`[bridge] ${err.message}`);
+        reject(err);
         return;
       }
 
       const tempIr = path.join(os.tmpdir(), `scrap-logic-${Date.now()}.ir`);
       fs.writeFileSync(tempIr, ir);
 
+      this.outputChannel.appendLine(
+        `[bridge] launching visualizer with ${tempIr}`,
+      );
       const proc = spawn(python, [visualizerPath, tempIr], {
         detached: true,
         stdio: "ignore",
@@ -111,10 +140,16 @@ export class PythonBridge {
       });
 
       proc.on("error", (err: Error) => {
+        this.outputChannel.appendLine(
+          `[bridge] failed to start visualizer: ${err.message}`,
+        );
         reject(new Error(`Failed to start visualizer: ${err.message}`));
       });
 
       proc.on("spawn", () => {
+        this.outputChannel.appendLine(
+          "[bridge] visualizer launched successfully",
+        );
         resolve();
       });
     });
@@ -122,9 +157,17 @@ export class PythonBridge {
 
   private resolvePython(): string {
     const candidates = ["python3", "python", "py"];
-    for (const candidate of candidates) {
-      return candidate;
-    }
-    return "python3";
+    const found = candidates.find((candidate) => {
+      try {
+        const { execSync } = require("child_process");
+        execSync(`${candidate} --version`, { stdio: "ignore" });
+        return true;
+      } catch {
+        return false;
+      }
+    });
+    const python = found || "python3";
+    this.outputChannel.appendLine(`[bridge] resolved Python: ${python}`);
+    return python;
   }
 }

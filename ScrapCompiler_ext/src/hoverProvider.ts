@@ -3,9 +3,11 @@ import { LogicClient, VariableInfo, ModuleInfo } from "./logicClient";
 
 export class HoverProvider implements vscode.HoverProvider {
   private client: LogicClient;
+  private outputChannel: vscode.OutputChannel;
 
-  constructor(client: LogicClient) {
+  constructor(client: LogicClient, outputChannel: vscode.OutputChannel) {
     this.client = client;
+    this.outputChannel = outputChannel;
   }
 
   public async provideHover(
@@ -32,16 +34,24 @@ export class HoverProvider implements vscode.HoverProvider {
 
     try {
       const data = await this.client.analyze(document.fileName);
+      this.outputChannel.appendLine(
+        `[hover] analyzed ${document.fileName}, looking up '${word}'`,
+      );
       const info = this.lookup(data, word, document, position);
       if (!info) {
+        this.outputChannel.appendLine(`[hover] no info found for '${word}'`);
         return undefined;
       }
 
       const markdown = new vscode.MarkdownString();
       markdown.isTrusted = true;
       markdown.appendMarkdown(this.formatHover(word, info));
+      this.outputChannel.appendLine(
+        `[hover] showing hover for '${word}' (kind: ${info.kind})`,
+      );
       return new vscode.Hover(markdown, wordRange);
     } catch (e) {
+      this.outputChannel.appendLine(`[hover] error: ${e}`);
       return undefined;
     }
   }
@@ -50,6 +60,7 @@ export class HoverProvider implements vscode.HoverProvider {
     data: {
       variables: Record<string, VariableInfo>;
       modules: Record<string, ModuleInfo>;
+      functions: Record<string, any>;
     },
     word: string,
     document: vscode.TextDocument,
@@ -57,9 +68,14 @@ export class HoverProvider implements vscode.HoverProvider {
   ): ({ kind: string } & (VariableInfo | ModuleInfo)) | undefined {
     const variables = data.variables || {};
     const modules = data.modules || {};
+    const functions = data.functions || {};
 
     if (variables[word]) {
       return { kind: "variable", ...(variables[word] as any) };
+    }
+
+    if (functions[word]) {
+      return { kind: "function", ...(functions[word] as any) };
     }
 
     if (modules[word]) {
@@ -88,14 +104,32 @@ export class HoverProvider implements vscode.HoverProvider {
       if (info.value !== null && info.value !== undefined) {
         md += `**Value:** \`${info.value}\`\n\n`;
       }
+    } else if (info.kind === "function") {
+      md += `**Kind:** Function\n\n`;
+      if (info.params) {
+        md += `**Parameters:**\n`;
+        for (const param of info.params) {
+          md += `- \`${param.name}\`: ${param.type}\n`;
+        }
+        md += `\n`;
+      }
+      if (info.return_type) {
+        md += `**Returns:** \`${info.return_type}\`\n\n`;
+      }
     } else if (info.kind === "module" || info.kind === "module-call") {
       md += `**Kind:** Module\n\n`;
+      if (info.decorators && info.decorators.length > 0) {
+        md += `**Decorators:** '${info.decorators.join("', '")}'\n\n`;
+      }
       if (info.inputs && info.inputs.length > 0) {
         md += `**Inputs:**\n`;
         for (const input of info.inputs) {
           md += `- \`${input.name}\`: ${input.type}`;
           if (input.length) {
             md += `[${input.length}]`;
+          }
+          if (input.optional) {
+            md += ` (optional)`;
           }
           md += `\n`;
         }
@@ -107,6 +141,9 @@ export class HoverProvider implements vscode.HoverProvider {
           md += `- \`${output.name}\`: ${output.type}`;
           if (output.length) {
             md += `[${output.length}]`;
+          }
+          if (output.buffered) {
+            md += ` (buffered)`;
           }
           md += `\n`;
         }

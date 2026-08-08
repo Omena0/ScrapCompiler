@@ -9,6 +9,7 @@ The TypeScript extension only handles display; all logic lives here.
 
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -28,16 +29,20 @@ def analyze(filepath: str) -> dict:
     modules = {}
     functions = {}
     errors = []
+    defines = {}
     try:
         ast = parser.parse(source)
         modules = ast.get("modules", {}) if isinstance(ast, dict) else {}
         functions = ast.get("functions", {}) if isinstance(ast, dict) else {}
+        defines = _extract_defines(source)
     except SystemExit as e:
         errors.append(str(e))
         modules = _extract_module_defs(source)
+        defines = _extract_defines(source)
     except Exception as e:
         errors.append(str(e))
         modules = _extract_module_defs(source)
+        defines = _extract_defines(source)
 
     compiler = ScrapCompiler(ast) if ast else None
     variables = {}
@@ -58,6 +63,8 @@ def analyze(filepath: str) -> dict:
     return {
         "variables": variables,
         "modules": module_info,
+        "functions": _build_function_info(functions),
+        "defines": defines,
         "errors": errors,
     }
 
@@ -98,6 +105,18 @@ def visualize(filepath: str) -> None:
         sys.exit(1)
 
 
+def _extract_defines(source: str) -> dict:
+    """Extract #define macros from source."""
+    defines = {}
+    for match in re.finditer(r"#\s*define\s+(\w+)\s*=\s*(.+)", source):
+        name = match.group(1)
+        value = match.group(2).strip()
+        if value.startswith("{") and value.endswith("}"):
+            value = value[1:-1].strip()
+        defines[name] = value
+    return defines
+
+
 def _extract_module_defs(source: str) -> dict:
     """Best-effort module name and field extraction when the parser fails."""
     modules = {}
@@ -114,10 +133,16 @@ def _extract_module_defs(source: str) -> dict:
 
             inputs = []
             outputs = []
+            decorators = []
 
             j = i + 1
             while j < len(lines):
                 block_line = lines[j].strip()
+
+                if block_line.startswith("@"):
+                    decorators.append(block_line)
+                    j += 1
+                    continue
 
                 if block_line == "inputs" or block_line.startswith("inputs {"):
                     fields, j = _parse_block(lines, j, "inputs")
@@ -137,6 +162,7 @@ def _extract_module_defs(source: str) -> dict:
             modules[name] = {
                 "inputs": inputs,
                 "outputs": outputs,
+                "decorators": decorators,
             }
             i = j
         i += 1
@@ -161,7 +187,7 @@ def _parse_block(lines: list, start: int, block_name: str):
         if inner == "}":
             j += 1
             break
-        if inner:
+        if inner and not inner.startswith("@"):
             fields.append(_parse_field(inner))
         j += 1
 
@@ -171,7 +197,7 @@ def _parse_block(lines: list, start: int, block_name: str):
 def _parse_field(line: str) -> dict:
     """Parse a simple field line like 'dynamic a' or 'bit ?carry_in'."""
     parts = line.split()
-    result = {"name": "", "type": "", "length": None}
+    result = {"name": "", "type": "", "length": None, "optional": False, "buffered": False}
 
     if "[" in line:
         bracket_start = line.find("[")
@@ -180,13 +206,17 @@ def _parse_field(line: str) -> dict:
             length_expr = line[bracket_start + 1 : bracket_end]
             result["length"] = length_expr
 
+    if "buffered" in parts:
+        result["buffered"] = True
+
     name_parts = []
     type_parts = []
     for part in parts:
-        if part in ("dynamic", "bit", "bool", "int"):
-            type_parts.append(part)
+        if part in ("dynamic", "buffered", "bit", "bool", "int"):
+            if part != "buffered":
+                type_parts.append(part)
         elif part == "?":
-            continue
+            result["optional"] = True
         elif part.startswith("[") or part.endswith("]"):
             continue
         else:
@@ -239,8 +269,10 @@ def _build_module_info(modules: dict, compiler) -> dict:
         "IntInput": [],
         "IntDisplay": [{"name": "bits", "type": "dynamic", "length": None}],
         "Lamp": [{"name": "bit", "type": "bit", "length": None}],
-        "Switch": [],
+        "Switch": [{"name": "default", "type": "bit", "length": None}],
         "Button": [],
+        "ButtonInput": [],
+        "Object": [{"name": "value", "type": "object", "length": None}],
     }
     builtin_outputs = {
         "IntInput": [{"name": "bits", "type": "dynamic", "length": None}],
@@ -248,21 +280,18 @@ def _build_module_info(modules: dict, compiler) -> dict:
         "Lamp": [],
         "Switch": [{"name": "bit", "type": "bit", "length": None}],
         "Button": [{"name": "bit", "type": "bit", "length": None}],
+        "ButtonInput": [{"name": "bit", "type": "bit", "length": None}],
+        "Object": [],
     }
 
-    for name in list(modules.keys()) + [
-        "IntInput",
-        "IntDisplay",
-        "Lamp",
-        "Switch",
-        "Button",
-    ]:
+    for name in list(modules.keys()) + list(builtin_inputs.keys()):
         if name in result:
             continue
         if name in builtin_inputs:
             result[name] = {
                 "inputs": builtin_inputs[name],
                 "outputs": builtin_outputs[name],
+                "decorators": [],
             }
         elif name in modules:
             mod = modules[name]
@@ -274,7 +303,9 @@ def _build_module_info(modules: dict, compiler) -> dict:
                         {
                             "name": f.get("name", ""),
                             "type": f.get("type", ""),
-                            "length": f.get("length"),
+                            "length": f.get("len") or f.get("length"),
+                            "optional": f.get("optional", False),
+                            "buffered": f.get("buffered", False),
                         }
                     )
             outputs = []
@@ -284,13 +315,79 @@ def _build_module_info(modules: dict, compiler) -> dict:
                         {
                             "name": f.get("name", ""),
                             "type": f.get("type", ""),
-                            "length": f.get("length"),
+                            "length": f.get("len") or f.get("length"),
+                            "optional": f.get("optional", False),
+                            "buffered": f.get("buffered", False),
                         }
                     )
+            decorators = []
+            if isinstance(mod, dict) and "decorators" in mod:
+                raw_decs = mod.get("decorators", [])
+                if isinstance(raw_decs, list):
+                    for d in raw_decs:
+                        if isinstance(d, dict):
+                            decorators.append(d.get("name", ""))
+                        elif isinstance(d, str):
+                            decorators.append(d)
+
             result[name] = {
                 "inputs": inputs,
                 "outputs": outputs,
+                "decorators": decorators,
             }
+    return result
+
+
+def _build_function_info(functions: dict) -> dict:
+    """Extract function definitions for hover and completion."""
+    result = {}
+
+    for name, func in functions.items():
+        if not isinstance(func, dict):
+            continue
+
+        fields = func.get("fields", {})
+        inputs = []
+        outputs = []
+
+        if isinstance(fields, dict):
+            for f in fields.get("inputs", []):
+                if isinstance(f, dict):
+                    inputs.append(
+                        {
+                            "name": f.get("name", ""),
+                            "type": f.get("type", ""),
+                            "length": f.get("len") or f.get("length"),
+                            "optional": f.get("optional", False),
+                        }
+                    )
+            for f in fields.get("outputs", []):
+                if isinstance(f, dict):
+                    outputs.append(
+                        {
+                            "name": f.get("name", ""),
+                            "type": f.get("type", ""),
+                            "length": f.get("len") or f.get("length"),
+                            "optional": f.get("optional", False),
+                        }
+                    )
+
+        decorators = []
+        if "decorators" in func:
+            raw_decs = func.get("decorators", [])
+            if isinstance(raw_decs, list):
+                for d in raw_decs:
+                    if isinstance(d, dict):
+                        decorators.append(d.get("name", ""))
+                    elif isinstance(d, str):
+                        decorators.append(d)
+
+        result[name] = {
+            "params": inputs,
+            "outputs": outputs,
+            "decorators": decorators,
+        }
+
     return result
 
 
@@ -314,7 +411,7 @@ if __name__ == "__main__":
     except Exception as e:
         print(
             json.dumps(
-                {"error": str(e), "variables": {}, "modules": {}, "errors": [str(e)]}
+                {"error": str(e), "variables": {}, "modules": {}, "functions": {}, "defines": {}, "errors": [str(e)]}
             )
         )
     sys.exit(0)

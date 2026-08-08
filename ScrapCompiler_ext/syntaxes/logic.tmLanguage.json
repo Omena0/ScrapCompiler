@@ -4,8 +4,10 @@
   "scopeName": "source.logic",
   "patterns": [
     { "include": "#comments" },
+    { "include": "#preprocessor" },
     { "include": "#decorators" },
     { "include": "#keywords" },
+    { "include": "#constants" },
     { "include": "#types" },
     { "include": "#builtins" },
     { "include": "#numbers" },
@@ -35,7 +37,23 @@
       "patterns": [
         {
           "name": "keyword.control.logic",
-          "match": "\\b(module|inputs|outputs|gates|new|as|bits|optional)\\b"
+          "match": "\\b(module|inputs|outputs|gates|new|as|bits|optional|for|function|in|range)\\b"
+        }
+      ]
+    },
+    "preprocessor": {
+      "patterns": [
+        {
+          "name": "meta.preprocessor.logic",
+          "match": "#\\s*define\\b"
+        }
+      ]
+    },
+    "constants": {
+      "patterns": [
+        {
+          "name": "constant.language.logic",
+          "match": "\\b(true|false)\\b"
         }
       ]
     },
@@ -51,7 +69,7 @@
       "patterns": [
         {
           "name": "support.class.builtin.logic",
-          "match": "\\b(Xor|And|Or|Not|Nand|Nor|Xnor|Timer|Lamp|Switch|Button|IntInput|IntDisplay)\\b"
+          "match": "\\b(Xor|And|Or|Not|Nand|Nor|Xnor|Timer|Lamp|Switch|Button|ButtonInput|IntInput|IntDisplay|Object)\\b"
         }
       ]
     },
@@ -118,7 +136,7 @@
       "patterns": [
         {
           "name": "punctuation.logic",
-          "match": "[{}()\\[\\];:,.]"
+          "match": "[{}()\\[\\];:,.<>]"
         },
         {
           "name": "storage.modifier.logic",

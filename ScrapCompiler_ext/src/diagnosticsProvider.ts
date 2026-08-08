@@ -4,9 +4,11 @@ import { LogicClient, AnalysisResult } from "./logicClient";
 export class DiagnosticsProvider {
   private client: LogicClient;
   private diagnosticCollection: vscode.DiagnosticCollection;
+  private outputChannel: vscode.OutputChannel;
 
-  constructor(client: LogicClient) {
+  constructor(client: LogicClient, outputChannel: vscode.OutputChannel) {
     this.client = client;
+    this.outputChannel = outputChannel;
     this.diagnosticCollection =
       vscode.languages.createDiagnosticCollection("logic");
   }
@@ -14,15 +16,25 @@ export class DiagnosticsProvider {
   public activate(): void {
     vscode.workspace.onDidChangeTextDocument((event) => {
       if (event.document.languageId === "logic") {
+        this.outputChannel.appendLine(
+          `[diagnostics] document changed: ${event.document.fileName}`,
+        );
         this.updateDiagnostics(event.document);
       }
     });
 
     vscode.workspace.onDidOpenTextDocument((document) => {
       if (document.languageId === "logic") {
+        this.outputChannel.appendLine(
+          `[diagnostics] document opened: ${document.fileName}`,
+        );
         this.updateDiagnostics(document);
       }
     });
+  }
+
+  public getDiagnosticCollection(): vscode.DiagnosticCollection {
+    return this.diagnosticCollection;
   }
 
   private async updateDiagnostics(
@@ -40,8 +52,11 @@ export class DiagnosticsProvider {
       }
 
       this.diagnosticCollection.set(document.uri, diagnostics);
+      this.outputChannel.appendLine(
+        `[diagnostics] set ${diagnostics.length} diagnostics for ${document.fileName}`,
+      );
     } catch (e) {
-      // Ignore analysis errors
+      this.outputChannel.appendLine(`[diagnostics] error: ${e}`);
     }
   }
 

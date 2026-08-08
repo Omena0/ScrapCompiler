@@ -22,6 +22,7 @@ export interface ModuleInfo {
 export interface AnalysisResult {
   variables: Record<string, VariableInfo>;
   modules: Record<string, ModuleInfo>;
+  functions: Record<string, any>;
   errors: string[];
 }
 
@@ -31,8 +32,8 @@ export class LogicClient {
     new Map();
   private readonly CACHE_TTL = 5000;
 
-  constructor() {
-    this.bridge = new PythonBridge();
+  constructor(outputChannel: vscode.OutputChannel) {
+    this.bridge = new PythonBridge(outputChannel);
   }
 
   public async analyze(filePath: string): Promise<AnalysisResult> {
@@ -45,6 +46,7 @@ export class LogicClient {
     const result: AnalysisResult = {
       variables: data.variables || {},
       modules: data.modules || {},
+      functions: data.functions || {},
       errors: data.errors
         ? Array.isArray(data.errors)
           ? data.errors
