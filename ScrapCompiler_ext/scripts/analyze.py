@@ -16,12 +16,39 @@ import tempfile
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
-from ScrapCompiler.compiler.compiler import ScrapCompiler
-from ScrapCompiler.parser import parser
+
+def _setup_sys_path(filepath: str) -> None:
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+
+    candidates = []
+
+    repo_root = os.path.abspath(os.path.join(script_dir, "..", ".."))
+    candidates.append(repo_root)
+
+    file_dir = os.path.dirname(os.path.abspath(filepath))
+    current = file_dir
+    for _ in range(8):
+        if os.path.isdir(os.path.join(current, "ScrapCompiler")):
+            candidates.append(current)
+            break
+        parent = os.path.dirname(current)
+        if parent == current:
+            break
+        current = parent
+
+    seen = set()
+    for candidate in candidates:
+        abs_candidate = os.path.abspath(candidate)
+        if abs_candidate not in seen and os.path.isdir(abs_candidate):
+            sys.path.insert(0, abs_candidate)
+            seen.add(abs_candidate)
 
 
 def analyze(filepath: str) -> dict:
     """Parse, compile, and analyze a .logic file for IDE support."""
+    _setup_sys_path(filepath)
+    from ScrapCompiler.compiler.compiler import ScrapCompiler
+    from ScrapCompiler.parser import parser
     with open(filepath, "r") as f:
         source = f.read()
 
@@ -71,6 +98,10 @@ def analyze(filepath: str) -> dict:
 
 def compile(filepath: str) -> str:
     """Compile a .logic file to IR."""
+    _setup_sys_path(filepath)
+    from ScrapCompiler.compiler.compiler import ScrapCompiler
+    from ScrapCompiler.parser import parser
+
     with open(filepath, "r") as f:
         source = f.read()
 

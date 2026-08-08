@@ -2,7 +2,7 @@
   "name": "scrap-logic",
   "displayName": "Scrap Logic",
   "description": "Language support for Scrap Logic (.logic) files",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "Omena0",
   "pricing": "Free",
   "author": {
