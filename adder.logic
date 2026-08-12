@@ -1,7 +1,6 @@
 
 
 // Dynamic adder module
-@clocked_input
 module Adder() {
     inputs {
         dynamic a

@@ -92,6 +92,10 @@
     "operators": {
       "patterns": [
         {
+          "name": "keyword.operator.arrow.logic",
+          "match": "->"
+        },
+        {
           "name": "keyword.operator.arithmetic.logic",
           "match": "\\+|\\-|\\*|/|%"
         },
